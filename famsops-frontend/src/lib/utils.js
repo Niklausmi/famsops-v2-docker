@@ -7,7 +7,7 @@ export function cn(...inputs) {
 
 export function formatDate(d) {
   if (!d) return '—';
-  try { return new Date(d).toLocaleDateString('en-PK', { day: 'numeric', month: 'short', year: 'numeric' }); }
+  try { return new Date(d).toLocaleDateString('en-PK', { day:'numeric', month:'short', year:'numeric' }); }
   catch { return String(d); }
 }
 
@@ -26,16 +26,30 @@ export function genId(prefix) {
   return `${prefix}-${Date.now().toString(36).toUpperCase().slice(-8)}`;
 }
 
-export const ROLE_PAGES = {
-  admin:      ['dashboard','customers','tickets','jolist','assets','leads','inventory','users','payments'],
-  sales:      ['dashboard','customers','tickets','leads'],
-  operations: ['dashboard','customers','tickets','jolist','assets','inventory'],
-  management: ['dashboard','customers','tickets','leads','jolist','assets','inventory'],
+export const CITIES   = ['Karachi','Lahore','Islamabad','Rawalpindi','Faisalabad','Multan','Peshawar','Quetta','Sialkot','Gujranwala','Hyderabad','Other'];
+export const PACKAGES = ['Basic Tracker','Standard','Premium','Fleet Bundle','Enterprise / Custom'];
+
+export const TICKET_TYPES    = ['Query','Complaint'];
+export const TICKET_STATUSES = ['Open','In Progress','Resolved','Closed'];
+export const LEAD_STATUSES   = ['New Lead','Contacted','Interested','Negotiation','Won','Lost'];
+export const ASSET_STATUSES  = ['Active','Inactive','Transferred'];
+
+export const ROLE_COLORS = {
+  admin:      '#ff7eb3',
+  sales:      '#38d9f5',
+  operations: '#7b6fff',
+  accounts:   '#3dffa0',
+  support:    '#ffb347',
+  management: '#ff5f6d',
+  technician: '#38d9f5',
 };
 
-export const CITIES = ['Karachi','Lahore','Islamabad','Rawalpindi','Faisalabad','Multan','Peshawar','Quetta','Sialkot','Gujranwala','Hyderabad','Other'];
-export const PACKAGES = ['Basic Tracker','Standard','Premium','Fleet Bundle','Enterprise / Custom'];
-export const TICKET_TYPES = ['Lead','Query','Complaint'];
-export const TICKET_STATUSES = ['Open','In Progress','Resolved','Closed'];
-export const LEAD_STATUSES = ['New Lead','Contacted','Interested','Negotiation','Won','Lost'];
-export const ASSET_STATUSES = ['Active','Inactive','Transferred'];
+export const ROLE_LABELS = {
+  admin:      'System Admin',
+  sales:      'Sales Team',
+  operations: 'Operations Team',
+  accounts:   'Accounts Team',
+  support:    'Support Team',
+  management: 'Management',
+  technician: 'Field Technician',
+};

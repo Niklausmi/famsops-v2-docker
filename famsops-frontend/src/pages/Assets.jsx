@@ -7,6 +7,7 @@ import { Badge } from '../components/ui/Badge';
 import { Drawer, DrawerSection, InfoGrid, InfoItem } from '../components/ui/Drawer';
 import { Modal, ModalButtons } from '../components/ui/Modal';
 import { Field, Input, Select, Textarea } from '../components/ui/Field';
+import { CustomerSearch } from '../components/ui/CustomerSearch';
 import { api } from '../api/client';
 import { formatDate, genId, CITIES } from '../lib/utils';
 
@@ -30,9 +31,12 @@ export default function Assets() {
   const [form, setForm]             = useState(BLANK);
   const [saving, setSaving]         = useState(false);
   const [formErr, setFormErr]       = useState('');
+  const [customer, setCustomer]     = useState(null);
+  const [custErr, setCustErr]       = useState('');
   const [custSearch, setCustSearch] = useState('');
-  const [custResults, setCustResults] = useState([]);
   const [allCustomers, setAllCustomers] = useState([]);
+  const [custResults, setCustResults] = useState([]);
+
   const [page, setPage] = useState(1);
   const PP = 24;
 
@@ -47,6 +51,23 @@ export default function Assets() {
     load();
     api.customers.list().then(r => setAllCustomers(r.data.data || r.data || [])).catch(() => {});
   }, []);
+
+  const searchCust = (q) => {
+    setCustSearch(q);
+    if (!q.trim()) { setCustResults([]); return; }
+    const results = allCustomers.filter(c =>
+      [c.customerName, c.contact, c.city, c.rac].some(v =>
+        (v || '').toLowerCase().includes(q.toLowerCase())
+      )
+    );
+    setCustResults(results.slice(0, 10));
+  };
+
+  const selectCust = (c) => {
+    onSelectCustomer(c);
+    setCustSearch('');
+    setCustResults([]);
+  };
 
   const filtered = useMemo(() => {
     let r = assets;
@@ -70,21 +91,16 @@ export default function Assets() {
   const pages = Math.max(1, Math.ceil(filtered.length / PP));
   const slice = filtered.slice((page-1)*PP, page*PP);
 
-  const searchCust = (q) => {
-    setCustSearch(q);
-    if (!q) { setCustResults([]); return; }
-    setCustResults(allCustomers.filter(c => [c.customerName, c.contact, c.company, c.rac].some(v => (v||'').toLowerCase().includes(q.toLowerCase()))).slice(0, 8));
-  };
-
-  const selectCust = (c) => {
-    setForm(f => ({ ...f, customerId: c.customerId, customerName: c.customerName, contact: c.contact, city: c.city||'' }));
-    setCustSearch(c.customerName); setCustResults([]);
+  const onSelectCustomer = (c) => {
+    setCustomer(c);
+    setForm(f => ({ ...f, customerId: c.customerId, customerName: c.customerName, contact: c.contact, city: c.city||'', rac: c.rac||'', company: c.company||'' }));
+    setCustErr('');
   };
 
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
 
-  const openNew  = () => { setForm(BLANK); setCustSearch(''); setFormErr(''); setShowEdit(true); };
-  const openEdit = (a) => { setForm({ ...BLANK, ...a }); setCustSearch(a.customerName || ''); setFormErr(''); setSelected(null); setShowEdit(true); };
+  const openNew  = () => { setForm(BLANK); setCustomer(null); setCustErr(''); setCustSearch(''); setCustResults([]); setFormErr(''); setShowEdit(true); };
+  const openEdit = (a) => { setForm({ ...BLANK, ...a }); setCustSearch(a.customerName || ''); setCustResults([]); setFormErr(''); setSelected(null); setShowEdit(true); };
 
   const save = async () => {
     if (!form.customerId)    { setFormErr('Please select a customer'); return; }

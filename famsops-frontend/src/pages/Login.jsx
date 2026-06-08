@@ -5,15 +5,17 @@ import { useAppStore } from '../store';
 import { api } from '../api/client';
 
 const QUICK_LOGINS = [
-  { label: 'Admin',      sub: 'Full access',          email: 'admin@famsops.local',  password: 'admin123',  icon: '⬡' },
-  { label: 'Sales',      sub: 'Leads + tickets',      email: 'sales@famsops.local',  password: 'sales123',  icon: '🎯' },
-  { label: 'Operations', sub: 'Orders + inventory',   email: 'ops@famsops.local',    password: 'ops123',    icon: '📋' },
-  { label: 'Management', sub: 'View + leads',         email: 'mgmt@famsops.local',   password: 'mgmt123',   icon: '📊' },
+  { label: 'Admin',      sub: 'Full access',           email: 'admin@famsops.local',     password: 'admin123',     icon: '⬡' },
+  { label: 'Sales',      sub: 'Leads · Quotations',   email: 'sales@famsops.local',     password: 'sales123',     icon: '🎯' },
+  { label: 'Operations', sub: 'Jobs · Inventory',      email: 'ops@famsops.local',       password: 'ops123',       icon: '📋' },
+  { label: 'Accounts',   sub: 'Billing · Invoices',    email: 'accounts@famsops.local',  password: 'accounts123',  icon: '💳' },
+  { label: 'Support',    sub: 'Tickets · Help desk',   email: 'support@famsops.local',   password: 'support123',   icon: '🎫' },
+  { label: 'Management', sub: 'View all · Approve',    email: 'mgmt@famsops.local',      password: 'mgmt123',      icon: '📊' },
 ];
 
 export default function Login() {
   const navigate = useNavigate();
-  const { user, setUser, initTheme } = useAppStore();
+  const { user, setUser, initTheme, _hydrated } = useAppStore();
   const [email, setEmail]           = useState('');
   const [password, setPassword]     = useState('');
   const [showPass, setShowPass]     = useState(false);
@@ -23,8 +25,12 @@ export default function Login() {
 
   useEffect(() => {
     initTheme();
-    if (user) navigate('/dashboard', { replace: true });
   }, []);
+
+  // Once rehydrated, if already logged in go straight to dashboard
+  useEffect(() => {
+    if (_hydrated && user) navigate('/dashboard', { replace: true });
+  }, [_hydrated, user]);
 
   async function doLogin(e, pEmail, pPass) {
     e?.preventDefault();
@@ -172,7 +178,7 @@ export default function Login() {
             <div style={{ fontSize: 9, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 10, textAlign: 'center' }}>
               Quick Login
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
               {QUICK_LOGINS.map(q => (
                 <button
                   key={q.email}

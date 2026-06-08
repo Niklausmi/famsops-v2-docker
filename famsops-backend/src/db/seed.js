@@ -3,10 +3,12 @@ const bcrypt = require('bcryptjs');
 const { query, pool } = require('./index');
 
 const USERS = [
-  { userId: 'USR-ADMIN001', name: 'System Admin',     email: 'admin@famsops.local',  role: 'admin',      dept: 'Management', password: 'admin123' },
-  { userId: 'USR-SALES001', name: 'Sales Manager',    email: 'sales@famsops.local',  role: 'sales',      dept: 'Sales',      password: 'sales123' },
-  { userId: 'USR-OPS001',   name: 'Operations Lead',  email: 'ops@famsops.local',    role: 'operations', dept: 'Operations', password: 'ops123' },
-  { userId: 'USR-MGMT001',  name: 'Senior Manager',   email: 'mgmt@famsops.local',   role: 'management', dept: 'Management', password: 'mgmt123' },
+  { userId: 'USR-ADMIN001', name: 'System Admin',      email: 'admin@famsops.local',     role: 'admin',      dept: 'Management', password: 'admin123' },
+  { userId: 'USR-SALES001', name: 'Sales Manager',     email: 'sales@famsops.local',     role: 'sales',      dept: 'Sales',      password: 'sales123' },
+  { userId: 'USR-OPS001',   name: 'Operations Lead',   email: 'ops@famsops.local',       role: 'operations', dept: 'Operations', password: 'ops123' },
+  { userId: 'USR-ACC001',   name: 'Accounts Manager',  email: 'accounts@famsops.local',  role: 'accounts',   dept: 'Finance',    password: 'accounts123' },
+  { userId: 'USR-SUP001',   name: 'Support Agent',     email: 'support@famsops.local',   role: 'support',    dept: 'Support',    password: 'support123' },
+  { userId: 'USR-MGMT001',  name: 'Senior Manager',    email: 'mgmt@famsops.local',      role: 'management', dept: 'Management', password: 'mgmt123' },
 ];
 
 const CUSTOMERS = [
@@ -23,11 +25,13 @@ async function seed() {
   // Users
   for (const u of USERS) {
     const hash = await bcrypt.hash(u.password, 10);
+    const { rows: roleRow } = await query('SELECT id FROM roles WHERE name = $1', [u.role]);
+    const roleId = roleRow[0]?.id || null;
     await query(`
-      INSERT INTO users (user_id, name, email, password_hash, role, department)
-      VALUES ($1,$2,$3,$4,$5,$6)
-      ON CONFLICT (email) DO NOTHING
-    `, [u.userId, u.name, u.email, hash, u.role, u.dept]);
+      INSERT INTO users (user_id, name, email, password_hash, role, role_id, department)
+      VALUES ($1,$2,$3,$4,$5,$6,$7)
+      ON CONFLICT (email) DO UPDATE SET role_id = EXCLUDED.role_id
+    `, [u.userId, u.name, u.email, hash, u.role, roleId, u.dept]);
     console.log(`  👤 User: ${u.email} / ${u.password}  [${u.role}]`);
   }
 

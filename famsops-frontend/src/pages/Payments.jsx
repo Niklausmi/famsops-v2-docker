@@ -7,6 +7,7 @@ import { Badge } from '../components/ui/Badge';
 import { DataTable } from '../components/ui/DataTable';
 import { Modal, ModalButtons } from '../components/ui/Modal';
 import { Field, Input, Select, Textarea } from '../components/ui/Field';
+import { CustomerSearch } from '../components/ui/CustomerSearch';
 import { api } from '../api/client';
 import { formatDate, genId } from '../lib/utils';
 
@@ -41,9 +42,11 @@ export default function Payments() {
   const [form, setForm]             = useState(BLANK);
   const [saving, setSaving]         = useState(false);
   const [formErr, setFormErr]       = useState('');
+  const [customer, setCustomer]     = useState(null);
+  const [custErr, setCustErr]       = useState('');
   const [custSearch, setCustSearch] = useState('');
-  const [custResults, setCustResults] = useState([]);
   const [allCustomers, setAllCustomers] = useState([]);
+  const [custResults, setCustResults] = useState([]);
 
   const load = async () => {
     setLoading(true);
@@ -56,6 +59,23 @@ export default function Payments() {
     load();
     api.customers.list().then(r => setAllCustomers(r.data.data || r.data || [])).catch(() => {});
   }, []);
+
+  const searchCust = (q) => {
+    setCustSearch(q);
+    if (!q.trim()) { setCustResults([]); return; }
+    const results = allCustomers.filter(c =>
+      [c.customerName, c.contact, c.city, c.rac].some(v =>
+        (v || '').toLowerCase().includes(q.toLowerCase())
+      )
+    );
+    setCustResults(results.slice(0, 10));
+  };
+
+  const selectCust = (c) => {
+    onSelectCustomer(c);
+    setCustSearch('');
+    setCustResults([]);
+  };
 
   const filtered = useMemo(() => {
     let r = payments;
@@ -72,24 +92,19 @@ export default function Payments() {
     count:    payments.length,
   }), [payments]);
 
-  const searchCust = (q) => {
-    setCustSearch(q);
-    if (!q) { setCustResults([]); return; }
-    setCustResults(allCustomers.filter(c => [c.customerName, c.contact, c.company].some(v => (v||'').toLowerCase().includes(q.toLowerCase()))).slice(0, 8));
-  };
-
-  const selectCust = (c) => {
-    setForm(f => ({ ...f, customerId: c.customerId, customerName: c.customerName, contact: c.contact }));
-    setCustSearch(c.customerName); setCustResults([]);
+  const onSelectCustomer = (c) => {
+    setCustomer(c);
+    setForm(f => ({ ...f, customerId: c.customerId, customerName: c.customerName, contact: c.contact, city: c.city||'', rac: c.rac||'', company: c.company||'' }));
+    setCustErr('');
   };
 
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
 
-  const openNew  = () => { setForm({ ...BLANK, paymentDate: new Date().toISOString().split('T')[0] }); setCustSearch(''); setFormErr(''); setShowEdit(true); };
-  const openEdit = (p) => { setForm({ ...BLANK, ...p }); setCustSearch(p.customerName || ''); setFormErr(''); setShowEdit(true); };
+  const openNew  = () => { setForm({ ...BLANK, paymentDate: new Date().toISOString().split('T')[0] }); setCustomer(null); setCustErr(''); setCustSearch(''); setCustResults([]); setFormErr(''); setShowEdit(true); };
+  const openEdit = (p) => { setForm({ ...BLANK, ...p }); setCustSearch(p.customerName || ''); setCustResults([]); setFormErr(''); setShowEdit(true); };
 
   const save = async () => {
-    if (!form.customerId) { setFormErr('Please select a customer'); return; }
+    if (!customer?.customerId) { setCustErr('Please select a customer'); return; }
     if (!form.amount)     { setFormErr('Amount is required'); return; }
     setSaving(true); setFormErr('');
     try {

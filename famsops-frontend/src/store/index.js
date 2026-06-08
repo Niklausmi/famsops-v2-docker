@@ -1,16 +1,32 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
 
 export const useAppStore = create(
   persist(
     (set, get) => ({
       // ── Auth ─────────────────────────────────────────────
-      user: null,
-      token: null,
-      setUser: (user, token) => set({ user, token }),
+      user:        null,
+      token:       null,
+      permissions: [],
+      _hydrated:   false,   // ← key flag: true once localStorage is loaded
+
+      setUser: (user, token) => {
+        set({ user, token, permissions: user.permissions || [] });
+      },
+
       logout: () => {
-        set({ user: null, token: null });
+        set({ user: null, token: null, permissions: [] });
         sessionStorage.clear();
+      },
+
+      setHydrated: () => set({ _hydrated: true }),
+
+      // Permission check — O(1) includes on array
+      can: (module, action) => {
+        const { user, permissions } = get();
+        if (!user) return false;
+        if (user.role === 'admin') return true;
+        return permissions.includes(`${module}.${action}`);
       },
 
       // ── Theme ────────────────────────────────────────────
@@ -21,8 +37,7 @@ export const useAppStore = create(
         document.documentElement.classList.toggle('light', next === 'light');
       },
       initTheme: () => {
-        const t = get().theme;
-        document.documentElement.classList.toggle('light', t === 'light');
+        document.documentElement.classList.toggle('light', get().theme === 'light');
       },
 
       // ── Nav ──────────────────────────────────────────────
@@ -30,8 +45,19 @@ export const useAppStore = create(
       toggleNav: () => set(s => ({ navCollapsed: !s.navCollapsed })),
     }),
     {
-      name: 'famsops-store',
-      partialize: (s) => ({ user: s.user, token: s.token, theme: s.theme }),
+      name:    'famsops-store',
+      storage: createJSONStorage(() => localStorage),
+      partialize: s => ({
+        user:        s.user,
+        token:       s.token,
+        permissions: s.permissions,
+        theme:       s.theme,
+        navCollapsed:s.navCollapsed,
+      }),
+      // Called once rehydration from localStorage is complete
+      onRehydrateStorage: () => (state) => {
+        state?.setHydrated();
+      },
     }
   )
 );

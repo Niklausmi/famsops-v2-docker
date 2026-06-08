@@ -8,6 +8,7 @@ import { DataTable } from '../components/ui/DataTable';
 import { Drawer, DrawerSection, InfoGrid, InfoItem } from '../components/ui/Drawer';
 import { Modal, ModalButtons } from '../components/ui/Modal';
 import { Field, Input, Select, Textarea } from '../components/ui/Field';
+import { CustomerSearch } from '../components/ui/CustomerSearch';
 import { api } from '../api/client';
 import { formatDate, genId, CITIES, PACKAGES } from '../lib/utils';
 
@@ -42,9 +43,8 @@ export default function Leads() {
   const [form, setForm]             = useState(BLANK);
   const [saving, setSaving]         = useState(false);
   const [formErr, setFormErr]       = useState('');
-  const [custSearch, setCustSearch] = useState('');
-  const [custResults, setCustResults] = useState([]);
-  const [allCustomers, setAllCustomers] = useState([]);
+  const [customer, setCustomer]     = useState(null);
+  const [custErr, setCustErr]       = useState('');
   const [view, setView]             = useState('table'); // table | kanban
 
   const load = async () => {
@@ -56,7 +56,6 @@ export default function Leads() {
 
   useEffect(() => {
     load();
-    api.customers.list().then(r => setAllCustomers(r.data.data || r.data || [])).catch(() => {});
   }, []);
 
   const filtered = useMemo(() => {
@@ -72,24 +71,19 @@ export default function Leads() {
     return c;
   }, [leads]);
 
-  const searchCust = (q) => {
-    setCustSearch(q);
-    if (!q) { setCustResults([]); return; }
-    setCustResults(allCustomers.filter(c => [c.customerName, c.contact, c.company, c.rac].some(v => (v||'').toLowerCase().includes(q.toLowerCase()))).slice(0, 8));
-  };
-
-  const selectCust = (c) => {
+  const onSelectCustomer = (c) => {
+    setCustomer(c);
     setForm(f => ({ ...f, customerId: c.customerId, customerName: c.customerName, contact: c.contact, city: c.city||'', company: c.company||'' }));
-    setCustSearch(c.customerName); setCustResults([]);
+    setCustErr('');
   };
 
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
 
-  const openNew  = () => { setForm(BLANK); setCustSearch(''); setFormErr(''); setShowEdit(true); };
-  const openEdit = (l) => { setForm({ ...BLANK, ...l }); setCustSearch(l.customerName || ''); setFormErr(''); setSelected(null); setShowEdit(true); };
+  const openNew  = () => { setForm(BLANK); setCustomer(null); setCustErr(''); setFormErr(''); setShowEdit(true); };
+  const openEdit = (l) => { setForm({ ...BLANK, ...l }); setCustomer(l.customerId ? {customerId:l.customerId,customerName:l.customerName,contact:l.contact,city:l.city} : null); setCustErr(''); setFormErr(''); setSelected(null); setShowEdit(true); };
 
   const save = async () => {
-    if (!form.customerId) { setFormErr('Please select a customer'); return; }
+    if (!customer?.customerId) { setCustErr('Please select a customer'); return; }
     if (!form.title)      { setFormErr('Lead title is required'); return; }
     setSaving(true); setFormErr('');
     try {
@@ -262,22 +256,7 @@ export default function Leads() {
       {/* Add / Edit Modal */}
       <Modal open={showEdit} onClose={() => setShowEdit(false)} title={form.leadId ? 'Edit Lead' : 'New Sales Lead'} size="lg">
         <Field label="Customer *">
-          <div style={{ position: 'relative' }}>
-            <Input placeholder="Search customer…" value={custSearch} onChange={e => searchCust(e.target.value)} />
-            {custResults.length > 0 && (
-              <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, background: 'var(--surface)', border: '1px solid var(--border-hi)', borderRadius: 10, maxHeight: 200, overflowY: 'auto', zIndex: 200, boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}>
-                {custResults.map(c => (
-                  <div key={c.customerId} onClick={() => selectCust(c)}
-                    style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid var(--border)' }}
-                    onMouseOver={e => e.currentTarget.style.background = 'rgba(56,217,245,0.06)'}
-                    onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
-                    <div style={{ fontSize: 12, color: 'var(--text)', fontWeight: 600 }}>{c.customerName}</div>
-                    <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>{c.contact} · {c.city}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          <CustomerSearch value={customer} onChange={onSelectCustomer} onClear={()=>{setCustomer(null);setForm(f=>({...f,customerId:'',customerName:'',contact:'',city:''}));}} error={custErr}/>
         </Field>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 18px' }}>
