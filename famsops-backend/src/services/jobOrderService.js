@@ -1,5 +1,6 @@
 const { query, getClient } = require('../db');
 const { nextId } = require('../utils/ids');
+const activationService = require('./activationService');
 
 const toJson = (r) => ({
   id: r.id, invoiceNumber: r.invoice_number, toc: r.toc, date: r.date,
@@ -11,10 +12,21 @@ const toJson = (r) => ({
   simNumber: r.sim_number, installerName: r.installer_name,
   technicianId: r.technician_id, installCity: r.install_city,
   package: r.package, amcDuration: r.amc_duration, amcExpiry: r.amc_expiry,
-  amount: r.amount, paymentStatus: r.payment_status, paymentMethod: r.payment_method,
+  amount: r.amount, payment_status: r.payment_status, payment_method: r.payment_method,
   notes: r.notes, followupDate: r.followup_date,
   leadId: r.lead_id, createdBy: r.created_by,
   createdAt: r.created_at, updatedAt: r.updated_at,
+  // New fields
+  chassisNo: r.chassis_no,
+  // Blueprint specific
+
+  oldTrackerIMEI: r.old_tracker_imei,
+  oldSimNumber: r.old_sim_number,
+  transferFromCustomerId: r.transfer_from_customer_id,
+  transferToCustomerId: r.transfer_to_customer_id,
+  removalType: r.removal_type,
+  consentLog: r.consent_log,
+  pairingVerified: r.pairing_verified,
 });
 
 async function list({ toc, status, search, from, to, customerId } = {}) {
@@ -72,8 +84,11 @@ async function create(data, userId) {
       registration_no,vehicle_make,vehicle_model,vehicle_color,vehicle_year,
       tracker_imei,sim_number,installer_name,technician_id,install_city,package,
       amc_duration,amc_expiry,amount,payment_status,payment_method,
-      notes,followup_date,lead_id,created_by)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30)
+      notes,followup_date,lead_id,created_by,
+      old_tracker_imei, old_sim_number, transfer_from_customer_id, 
+      transfer_to_customer_id, removal_type, consent_log, pairing_verified,
+      chassis_no)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38)
   `, [invoiceNumber, data.toc||'New Installation',
       data.date||new Date().toISOString().split('T')[0],
       data.status||'Scheduled',
@@ -87,13 +102,20 @@ async function create(data, userId) {
       data.amcDuration||null, data.amcExpiry||null,
       data.amount||null, data.paymentStatus||null, data.paymentMethod||null,
       data.notes||null, data.followupDate||null,
-      data.leadId||null, userId]);
+      data.leadId||null, userId,
+      data.oldTrackerIMEI||null, data.oldSimNumber||null, data.transferFromCustomerId||null,
+      data.transferToCustomerId||null, data.removalType||null, data.consentLog||null,
+      data.pairingVerified||false,
+      data.chassisNo||null]);
 
   // DB triggers handle: device status sync, asset upsert, job count
   return getById(invoiceNumber);
 }
 
 async function update(invoiceNumber, data) {
+  const oldJob = await getById(invoiceNumber);
+  if (!oldJob) throw Object.assign(new Error('Job not found'), { status: 404 });
+
   const fields = {
     toc: data.toc, date: data.date, status: data.status,
     registration_no: data.registrationNo, vehicle_make: data.vehicleMake,
@@ -105,19 +127,41 @@ async function update(invoiceNumber, data) {
     amount: data.amount, payment_status: data.paymentStatus,
     payment_method: data.paymentMethod,
     notes: data.notes, followup_date: data.followupDate||null,
+    chassis_no: data.chassisNo,
+    // Blueprint specific
+    old_tracker_imei: data.oldTrackerIMEI,
+    old_sim_number: data.oldSimNumber,
+    transfer_from_customer_id: data.transferFromCustomerId,
+    transfer_to_customer_id: data.transferToCustomerId,
+    removal_type: data.removalType,
+    consent_log: data.consentLog,
+    pairing_verified: data.pairingVerified,
   };
   const sets = []; const vals = []; let p = 2;
   for (const [col, val] of Object.entries(fields)) {
     if (val !== undefined) { sets.push(`${col} = $${p++}`); vals.push(val === '' ? null : val); }
   }
-  if (!sets.length) return getById(invoiceNumber);
-  await query(
-    `UPDATE job_orders SET ${sets.join(',')} WHERE invoice_number = $1`,
-    [invoiceNumber, ...vals]
-  );
-  // Triggers fire automatically
-  return getById(invoiceNumber);
+  
+  if (sets.length > 0) {
+    await query(
+      `UPDATE job_orders SET ${sets.join(',')} WHERE invoice_number = $1`,
+      [invoiceNumber, ...vals]
+    );
+  }
+
+  const updatedJob = await getById(invoiceNumber);
+
+  // Trigger activations if status changed to Completed
+  if (updatedJob.status === 'Completed' && oldJob.status !== 'Completed') {
+    await activationService.notifyControlRoom(invoiceNumber);
+    if (updatedJob.customerId && updatedJob.registrationNo) {
+      await activationService.provisionMobileApp(updatedJob.customerId, updatedJob.registrationNo);
+    }
+  }
+
+  return updatedJob;
 }
+
 
 /**
  * Convert a Won lead into a Job Order — pre-fills all lead data.
@@ -135,14 +179,16 @@ async function convertFromLead(leadId, userId) {
   await query(`
     INSERT INTO job_orders (invoice_number, toc, date, status,
       customer_id, customer_name, contact, city, company, package,
-      amc_duration, amount, notes, lead_id, created_by)
-    VALUES ($1,'New Installation',$2,'Scheduled',$3,$4,$5,$6,$7,$8,'1 Year',$9,$10,$11,$12)
+      amc_duration, amount, notes, lead_id, created_by,
+      registration_no, vehicle_make, vehicle_model, vehicle_color, chassis_no)
+    VALUES ($1,'New Installation',$2,'Scheduled',$3,$4,$5,$6,$7,$8,'1 Year',$9,$10,$11,$12,$13,$14,$15,$16,$17)
   `, [invoiceNumber, new Date().toISOString().split('T')[0],
       lead.customer_id, lead.customer_name, lead.contact,
       lead.city, lead.company||null, lead.package||null,
       lead.amount||null,
       `Converted from lead ${leadId}. ${lead.description||''}`.trim(),
-      leadId, userId]);
+      leadId, userId,
+      lead.plate_number||null, lead.vehicle_make||null, lead.vehicle_model||null, lead.vehicle_color||null, lead.chassis_no||null]);
 
   // Mark lead as converted
   await query(

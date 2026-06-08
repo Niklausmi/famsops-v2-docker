@@ -16,6 +16,13 @@ const toJson = (r) => ({
   convertedJobId: r.converted_job_id, convertedAt: r.converted_at,
   sourceTicketId: r.source_ticket_id,
   createdAt: r.created_at, updatedAt: r.updated_at,
+  // New vehicle details
+  plateNumber: r.plate_number,
+  vehicleMake: r.vehicle_make,
+  vehicleModel: r.vehicle_model,
+  vehicleColor: r.vehicle_color,
+  chassisNo: r.chassis_no,
+  images: r.images || [],
 });
 
 // GET /api/v1/leads
@@ -54,14 +61,17 @@ router.post('/', auth, async (req, res) => {
     INSERT INTO leads (lead_id,status,title,description,
       customer_id,customer_name,contact,city,company,
       package,vehicles,budget,timeline,preferred_payment,
-      source,salesperson,followup_date,priority,amount,notes,source_ticket_id)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+      source,salesperson,followup_date,priority,amount,notes,source_ticket_id,
+      plate_number, vehicle_make, vehicle_model, vehicle_color, chassis_no, images)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
   `, [leadId, d.status||'New Lead', d.title, d.description||null,
       d.customerId, d.customerName||null, d.contact||null, d.city||null,
       d.company||null, d.package||null, d.vehicles||null, d.budget||null,
       d.timeline||null, d.preferredPayment||null, d.source||null,
       d.salesperson||null, d.followupDate||null, d.priority||'Medium',
-      d.amount||null, d.notes||null, d.sourceTicketId||null]);
+      d.amount||null, d.notes||null, d.sourceTicketId||null,
+      d.plateNumber||null, d.vehicleMake||null, d.vehicleModel||null,
+      d.vehicleColor||null, d.chassisNo||null, d.images||null]);
 
   const { rows } = await query('SELECT * FROM leads WHERE lead_id = $1', [leadId]);
   res.status(201).json(toJson(rows[0]));
@@ -77,6 +87,9 @@ router.patch('/:id', auth, async (req, res) => {
     source: d.source, salesperson: d.salesperson,
     followup_date: d.followupDate||null, priority: d.priority,
     amount: d.amount, notes: d.notes,
+    plate_number: d.plateNumber, vehicle_make: d.vehicleMake,
+    vehicle_model: d.vehicleModel, vehicle_color: d.vehicleColor,
+    chassis_no: d.chassisNo, images: d.images,
     closed_date: (d.status === 'Won' || d.status === 'Lost')
       ? new Date().toISOString().split('T')[0] : undefined,
   };

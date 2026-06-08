@@ -2,6 +2,7 @@ const router = require('express').Router();
 const { query, getClient } = require('../db');
 const { auth, can } = require('../middleware/auth');
 const { nextId } = require('../utils/ids');
+const pricingService = require('../services/pricingService');
 
 // ════════════════════════════════════════════════════════════
 //  SUBSCRIPTIONS
@@ -44,7 +45,11 @@ router.post('/subscriptions', auth, can('subscriptions', 'create'), async (req, 
   if (!d.customerId)   return res.status(400).json({ message: 'customerId required' });
   if (!d.planName)     return res.status(400).json({ message: 'planName required' });
   if (!d.startDate)    return res.status(400).json({ message: 'startDate required' });
-  if (!d.ratePerVehicle) return res.status(400).json({ message: 'ratePerVehicle required' });
+
+  let ratePerVehicle = Number(d.ratePerVehicle || 0);
+  if (ratePerVehicle === 0) {
+    ratePerVehicle = await pricingService.getRate(d.customerId, 'subscription', 0);
+  }
 
   const subscriptionId = await nextId('seq_sub', 'SUB');
 
@@ -63,7 +68,7 @@ router.post('/subscriptions', auth, can('subscriptions', 'create'), async (req, 
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
     [subscriptionId, d.status||'Pending', d.customerId, d.customerName||null,
      d.assetId||null, d.workOrderId||null, d.quotationId||null,
-     d.planName, cycle, d.ratePerVehicle, d.vehicleCount||1,
+     d.planName, cycle, ratePerVehicle, d.vehicleCount||1,
      d.startDate, d.endDate||null, nextBill.toISOString().split('T')[0],
      d.autoRenew !== false, d.notes||null, req.user.userId]
   );
@@ -167,7 +172,19 @@ router.post('/invoices', auth, can('invoices', 'create'), async (req, res) => {
     await client.query('BEGIN');
     const invoiceId = 'INV-' + String(await nextId('seq_invoice','X')).replace('X-','').padStart(6,'0');
     const items = d.items || [];
-    const subtotal = items.reduce((s,it) => s + Number(it.qty||1)*Number(it.unitPrice||0), 0);
+    const processedItems = [];
+
+    for (const it of items) {
+      const itemType = it.itemType || 'service';
+      let unitPrice = Number(it.unitPrice || 0);
+      
+      if (unitPrice === 0) {
+        unitPrice = await pricingService.getRate(d.customerId, itemType, 0);
+      }
+      processedItems.push({ ...it, unitPrice });
+    }
+
+    const subtotal = processedItems.reduce((s,it) => s + Number(it.qty||1)*Number(it.unitPrice||0), 0);
     const discAmt  = subtotal * Number(d.discountPct||0)/100;
     const taxAmt   = (subtotal - discAmt) * Number(d.taxPct||0)/100;
     const total    = subtotal - discAmt + taxAmt;
@@ -187,8 +204,8 @@ router.post('/invoices', auth, can('invoices', 'create'), async (req, res) => {
        d.notes||null, req.user.userId]
     );
 
-    for (let i=0; i<items.length; i++) {
-      const it = items[i];
+    for (let i=0; i<processedItems.length; i++) {
+      const it = processedItems[i];
       await client.query(
         `INSERT INTO invoice_items (invoice_id,sort_order,description,qty,unit,unit_price)
          VALUES ($1,$2,$3,$4,$5,$6)`,

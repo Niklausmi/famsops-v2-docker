@@ -11,8 +11,8 @@ import { Field, Input, Select, Textarea } from '../components/ui/Field';
 import { api } from '../api/client';
 import { formatDate, genId } from '../lib/utils';
 
-const TRACKER_STATUSES = ['Available','Assigned','Faulty','Removed'];
-const SIM_STATUSES     = ['Available','Installed','Lost','Disabled'];
+const TRACKER_STATUSES = ['Available', 'Reserved', 'Assigned', 'Faulty', 'Removed', 'In Transit', 'In Repair'];
+const SIM_STATUSES     = ['Available', 'Reserved', 'Installed', 'Lost', 'Disabled', 'In Transit', 'In Repair'];
 
 export default function Inventory() {
   const [tab, setTab]               = useState('trackers');

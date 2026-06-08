@@ -31,6 +31,9 @@ const BLANK = {
   preferredPayment: '', source: '', salesperson: '',
   followupDate: '', priority: 'Medium', notes: '',
   amount: '', closedDate: '',
+  // New vehicle details
+  plateNumber: '', vehicleMake: '', vehicleModel: '', vehicleColor: '', chassisNo: '',
+  images: [],
 };
 
 export default function Leads() {
@@ -237,6 +240,32 @@ export default function Leads() {
               <InfoItem label="Payment"   value={selected.preferredPayment} />
               <InfoItem label="Amount"    value={selected.amount ? `PKR ${Number(selected.amount).toLocaleString()}` : '—'} />
             </InfoGrid>
+
+            {(selected.plateNumber || selected.vehicleMake || selected.vehicleModel || selected.vehicleColor || selected.chassisNo) && (
+              <>
+                <DrawerSection title="Vehicle Details" />
+                <InfoGrid>
+                  {selected.plateNumber && <InfoItem label="Plate No." value={selected.plateNumber} />}
+                  {selected.vehicleMake && <InfoItem label="Make" value={selected.vehicleMake} />}
+                  {selected.vehicleModel && <InfoItem label="Model" value={selected.vehicleModel} />}
+                  {selected.vehicleColor && <InfoItem label="Color" value={selected.vehicleColor} />}
+                  {selected.chassisNo && <InfoItem label="Chassis No." value={selected.chassisNo} />}
+                </InfoGrid>
+              </>
+            )}
+
+            {selected.images && selected.images.length > 0 && (
+              <>
+                <DrawerSection title="Attachments" />
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {selected.images.map((img, idx) => (
+                    <a key={idx} href={img} target="_blank" rel="noreferrer" style={{ width: 100, height: 70, borderRadius: 6, overflow: 'hidden', border: '1px solid var(--border)' }}>
+                      <img src={img} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    </a>
+                  ))}
+                </div>
+              </>
+            )}
             {selected.description && (
               <>
                 <DrawerSection title="Description" />
@@ -286,6 +315,53 @@ export default function Leads() {
           <Field label="Follow-up Date"><Input type="date" value={form.followupDate} onChange={set('followupDate')} /></Field>
           <Field label="Est. Amount (PKR)"><Input type="number" value={form.amount} onChange={set('amount')} /></Field>
         </div>
+
+        {/* Vehicle Details Section */}
+        <div style={{ fontSize: 9, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--muted)', padding: '14px 0 8px', display: 'flex', alignItems: 'center', gap: 10 }}>
+          Vehicle Information <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '0 12px' }}>
+          <Field label="Plate Number"><Input placeholder="ABC-123" value={form.plateNumber} onChange={set('plateNumber')} /></Field>
+          <Field label="Make"><Input placeholder="Toyota, Honda..." value={form.vehicleMake} onChange={set('vehicleMake')} /></Field>
+          <Field label="Model"><Input placeholder="Corolla, Civic..." value={form.vehicleModel} onChange={set('vehicleModel')} /></Field>
+          <Field label="Color"><Input placeholder="White, Black..." value={form.vehicleColor} onChange={set('vehicleColor')} /></Field>
+          <Field label="Chassis Number"><Input placeholder="VIN / Chassis" value={form.chassisNo} onChange={set('chassisNo')} /></Field>
+        </div>
+
+        <Field label="Attach Images">
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 4 }}>
+            {form.images.map((img, idx) => (
+              <div key={idx} style={{ position: 'relative', width: 80, height: 80, borderRadius: 8, overflow: 'hidden', border: '1px solid var(--border)' }}>
+                <img src={img} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <button 
+                  onClick={() => setForm(f => ({ ...f, images: f.images.filter((_, i) => i !== idx) }))}
+                  style={{ position: 'absolute', top: 2, right: 2, background: 'rgba(0,0,0,0.5)', color: 'white', border: 'none', borderRadius: '50%', width: 18, height: 18, fontSize: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+            <label style={{ width: 80, height: 80, borderRadius: 8, border: '1px dashed var(--border)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'all 0.2s' }}>
+              <Plus size={16} style={{ color: 'var(--muted)' }} />
+              <span style={{ fontSize: 9, color: 'var(--muted)', marginTop: 4 }}>Upload</span>
+              <input 
+                type="file" 
+                multiple 
+                accept="image/*" 
+                style={{ display: 'none' }} 
+                onChange={async (e) => {
+                  const files = Array.from(e.target.files);
+                  const base64s = await Promise.all(files.map(file => new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result);
+                    reader.readAsDataURL(file);
+                  })));
+                  setForm(f => ({ ...f, images: [...f.images, ...base64s] }));
+                }}
+              />
+            </label>
+          </div>
+        </Field>
 
         <Field label="Description">
           <Textarea placeholder="What the customer is looking for…" value={form.description} onChange={set('description')} />

@@ -2,6 +2,7 @@ const router = require('express').Router();
 const { query, getClient } = require('../db');
 const { auth, can } = require('../middleware/auth');
 const { nextId } = require('../utils/ids');
+const pricingService = require('../services/pricingService');
 
 const toJson = r => ({
   id: r.id, quotationId: r.quotation_id, status: r.status,
@@ -61,9 +62,23 @@ router.post('/', auth, can('quotations', 'create'), async (req, res) => {
     await client.query('BEGIN');
     const quotationId = await nextId('seq_quotation', 'QT');
 
-    // Calculate totals from items
+    // Calculate totals from items, applying pricing overrides if necessary
     const items = d.items || [];
-    const subtotal = items.reduce((s, it) =>
+    const processedItems = [];
+    
+    for (const it of items) {
+      const itemType = it.itemType || 'service';
+      let unitPrice = Number(it.unitPrice || 0);
+      
+      // If price is 0 or not provided, try to get from override engine
+      if (unitPrice === 0) {
+        unitPrice = await pricingService.getRate(d.customerId, itemType, 0);
+      }
+      
+      processedItems.push({ ...it, unitPrice });
+    }
+
+    const subtotal = processedItems.reduce((s, it) =>
       s + (Number(it.qty||1) * Number(it.unitPrice||0) * (1 - Number(it.discountPct||0)/100)), 0);
     const discountAmt = subtotal * Number(d.discountPct||0) / 100;
     const taxAmt = (subtotal - discountAmt) * Number(d.taxPct||0) / 100;
@@ -81,8 +96,8 @@ router.post('/', auth, can('quotations', 'create'), async (req, res) => {
     );
 
     // Insert line items
-    for (let idx = 0; idx < items.length; idx++) {
-      const it = items[idx];
+    for (let idx = 0; idx < processedItems.length; idx++) {
+      const it = processedItems[idx];
       await client.query(
         `INSERT INTO quotation_items (quotation_id,sort_order,item_type,description,qty,unit,unit_price,discount_pct,is_recurring,billing_cycle)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,

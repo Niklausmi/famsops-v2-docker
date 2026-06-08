@@ -112,6 +112,11 @@ export const api = {
     send:   id     => client.post(`/invoices/${id}/send`),
     void:   id     => client.post(`/invoices/${id}/void`),
   },
+  pricing: {
+    listOverrides:   customerId => client.get(`/pricing/overrides/${customerId}`),
+    upsertOverride:  d          => client.post('/pricing/overrides', d),
+    removeOverride:  (customerId, type) => client.delete(`/pricing/overrides/${customerId}/${type}`),
+  },
   payments: {
     list:   p      => client.get('/payments', { params: p }),
     create: d      => client.post('/payments', d),
