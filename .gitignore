@@ -1,0 +1,55 @@
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Build output
+dist/
+build/
+coverage/
+.cache/
+
+# Environment files
+.env.local
+.env.*.local
+
+
+
+# VS Code
+.vscode/
+.history/
+
+# MacOS
+.DS_Store
+
+# Windows
+Thumbs.db
+ehthumbs.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+
+# Generated frontend artifacts
+famsops-frontend/node_modules/
+famsops-frontend/dist/
+famsops-frontend/build/
+
+# Generated backend artifacts
+famsops-backend/node_modules/
+
+# Ignore local shell scripts permissions
+
