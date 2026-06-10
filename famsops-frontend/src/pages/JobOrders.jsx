@@ -10,10 +10,11 @@ import { Drawer, DrawerSection, InfoGrid, InfoItem } from '../components/ui/Draw
 import { Modal, ModalButtons } from '../components/ui/Modal';
 import { Field, Input, Select, Textarea } from '../components/ui/Field';
 import { CustomerSearch } from '../components/ui/CustomerSearch';
+import { BillingPreview } from '../components/ui/BillingPreview';
 import { api } from '../api/client';
 import { formatDate, CITIES, PACKAGES } from '../lib/utils';
 
-const JO_TYPES    = ['New Installation', 'Vehicle Transfer', 'Ownership Transfer', 'Reinstallation', 'Inspection', 'Replacement', 'Removal'];
+const JO_TYPES    = ['New Installation','Replacement','Removal','Repair / Service','Relocation','SIM Swap','AMC Visit'];
 const JO_STATUSES = ['Scheduled','In Progress','Completed','Cancelled','On Hold'];
 
 const BLANK = {
@@ -23,11 +24,6 @@ const BLANK = {
   trackerIMEI:'', simNumber:'', technicianId:'', installerName:'', installCity:'', package:'',
   amcDuration:'', amcExpiry:'', status:'Scheduled',
   amount:'', paymentStatus:'', paymentMethod:'', notes:'', followupDate:'',
-  // New vehicle details
-  chassisNo:'',
-  // Blueprint specific
-  oldTrackerIMEI:'', oldSimNumber:'', transferFromCustomerId:'', 
-  transferToCustomerId:'', removalType:'Temporary', consentLog:'', pairingVerified:false,
 };
 
 const STATUS_DOT_COLOR = {
@@ -250,13 +246,12 @@ export default function JobOrders() {
   const [formErr,setFormErr]     = useState('');
 
   const [customer,setCustomer]   = useState(null);
-  const [transferFrom, setTransferFrom] = useState(null);
-  const [transferTo, setTransferTo]     = useState(null);
   const [custErr,setCustErr]     = useState('');
 
   const [trackers,setTrackers]   = useState([]);
   const [sims,setSims]           = useState([]);
   const [invLoading,setInvLoading]= useState(false);
+  const [showBillingPreview, setShowBillingPreview] = useState(false);
 
   const [technicians,setTechs]   = useState([]);
 
@@ -307,8 +302,7 @@ export default function JobOrders() {
 
   const openNew = () => {
     setForm({...BLANK, date:new Date().toISOString().split('T')[0]});
-    setCustomer(null); setTransferFrom(null); setTransferTo(null);
-    setCustErr(''); setFormErr('');
+    setCustomer(null); setCustErr(''); setFormErr('');
     setShowEdit(true);
     loadInventory();
   };
@@ -316,13 +310,6 @@ export default function JobOrders() {
   const openEdit = j => {
     setForm({...BLANK,...j});
     setCustomer(j.customerId ? {customerId:j.customerId,customerName:j.customerName,contact:j.contact,city:j.city} : null);
-    setTransferFrom(j.transferFromCustomerId ? {customerId:j.transferFromCustomerId, customerName: 'Loading...'} : null);
-    setTransferTo(j.transferToCustomerId ? {customerId:j.transferToCustomerId, customerName: 'Loading...'} : null);
-    
-    // Fetch full customer details for transfers if IDs exist
-    if (j.transferFromCustomerId) api.customers.get(j.transferFromCustomerId).then(r => setTransferFrom(r.data)).catch(() => {});
-    if (j.transferToCustomerId) api.customers.get(j.transferToCustomerId).then(r => setTransferTo(r.data)).catch(() => {});
-
     setCustErr(''); setFormErr('');
     setSelected(null);
     setShowEdit(true);
@@ -333,16 +320,6 @@ export default function JobOrders() {
     setCustomer(c);
     setForm(f=>({...f,customerId:c.customerId,customerName:c.customerName,contact:c.contact,city:c.city||'',rac:c.rac||'',company:c.company||''}));
     setCustErr('');
-  };
-
-  const onSelectTransferFrom = c => {
-    setTransferFrom(c);
-    setForm(f=>({...f,transferFromCustomerId:c.customerId}));
-  };
-
-  const onSelectTransferTo = c => {
-    setTransferTo(c);
-    setForm(f=>({...f,transferToCustomerId:c.customerId}));
   };
 
   const save = async () => {
@@ -447,24 +424,7 @@ export default function JobOrders() {
             <InfoItem label="Registration" value={selected.registrationNo}/>
             <InfoItem label="Vehicle"      value={[selected.vehicleMake,selected.vehicleModel,selected.vehicleColor].filter(Boolean).join(' ')}/>
             <InfoItem label="Year"         value={selected.vehicleYear}/>
-            <InfoItem label="Chassis No."  value={selected.chassisNo}/>
           </InfoGrid>
-
-          {(selected.oldTrackerIMEI || selected.oldSimNumber || selected.transferFromCustomerId || selected.transferToCustomerId || selected.removalType || selected.consentLog || selected.pairingVerified) && (
-            <>
-              <DrawerSection title="Lifecycle Context"/>
-              <InfoGrid>
-                {selected.oldTrackerIMEI && <InfoItem label="Old IMEI" value={selected.oldTrackerIMEI}/>}
-                {selected.oldSimNumber && <InfoItem label="Old SIM" value={selected.oldSimNumber}/>}
-                {selected.transferFromCustomerId && <InfoItem label="Transfer From" value={selected.transferFromCustomerId}/>}
-                {selected.transferToCustomerId && <InfoItem label="Transfer To" value={selected.transferToCustomerId}/>}
-                {selected.removalType && <InfoItem label="Removal Type" value={selected.removalType}/>}
-                {selected.consentLog && <InfoItem label="Consent Log" value={selected.consentLog}/>}
-                <InfoItem label="Pairing Verified" value={selected.pairingVerified ? '✅ Yes' : '❌ No'}/>
-              </InfoGrid>
-            </>
-          )}
-
           <DrawerSection title="Devices"/>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:6}}>
             {[
@@ -507,13 +467,12 @@ export default function JobOrders() {
 
         {/* Vehicle */}
         <Div title="Vehicle"/>
-        <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'0 10px'}}>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:'0 10px'}}>
           <Field label="Reg No. *"><Input placeholder="ABC-000" value={form.registrationNo} onChange={set('registrationNo')}/></Field>
           <Field label="Make"><Input placeholder="Toyota" value={form.vehicleMake} onChange={set('vehicleMake')}/></Field>
           <Field label="Model"><Input placeholder="Corolla" value={form.vehicleModel} onChange={set('vehicleModel')}/></Field>
           <Field label="Color"><Input value={form.vehicleColor} onChange={set('vehicleColor')}/></Field>
           <Field label="Year"><Input type="number" min="1990" max="2099" value={form.vehicleYear} onChange={set('vehicleYear')}/></Field>
-          <Field label="Chassis Number"><Input placeholder="VIN / Chassis" value={form.chassisNo} onChange={set('chassisNo')}/></Field>
         </div>
 
         {/* Devices — inventory dropdowns */}
@@ -535,65 +494,6 @@ export default function JobOrders() {
               onClear={()=>setForm(f=>({...f,simNumber:''}))}
               disabled={invLoading}/>
           </Field>
-        </div>
-
-        {/* Blueprint Specific Fields */}
-        {form.toc === 'Replacement' && (
-          <>
-            <Div title="Replacement Details"/>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 18px'}}>
-              <Field label="Old Tracker IMEI"><Input placeholder="IMEI of removed device" value={form.oldTrackerIMEI} onChange={set('oldTrackerIMEI')}/></Field>
-              <Field label="Old SIM Number"><Input placeholder="SIM of removed device" value={form.oldSimNumber} onChange={set('oldSimNumber')}/></Field>
-            </div>
-          </>
-        )}
-
-        {form.toc === 'Ownership Transfer' && (
-          <>
-            <Div title="Transfer Details"/>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 18px'}}>
-              <Field label="Transfer From *">
-                <CustomerSearch 
-                  value={transferFrom} 
-                  onChange={onSelectTransferFrom}
-                  onClear={() => { setTransferFrom(null); setForm(f => ({ ...f, transferFromCustomerId: '' })); }}
-                  placeholder="Select source customer..."
-                />
-              </Field>
-              <Field label="Transfer To *">
-                <CustomerSearch 
-                  value={transferTo} 
-                  onChange={onSelectTransferTo}
-                  onClear={() => { setTransferTo(null); setForm(f => ({ ...f, transferToCustomerId: '' })); }}
-                  placeholder="Select target customer..."
-                />
-              </Field>
-            </div>
-          </>
-        )}
-
-        {form.toc === 'Removal' && (
-          <>
-            <Div title="Removal Details"/>
-            <Field label="Removal Type">
-              <Select value={form.removalType} onChange={set('removalType')}>
-                <option value="Temporary">Temporary</option>
-                <option value="Permanent">Permanent</option>
-              </Select>
-            </Field>
-          </>
-        )}
-
-        {/* Verification & Consent */}
-        <Div title="Verification & Consent"/>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 18px', alignItems:'end'}}>
-          <Field label="Consent Log"><Input placeholder="Authorized by..." value={form.consentLog} onChange={set('consentLog')}/></Field>
-          <div style={{marginBottom:24, display:'flex', alignItems:'center', gap:10}}>
-            <input type="checkbox" checked={form.pairingVerified} onChange={e=>setForm(f=>({...f,pairingVerified:e.target.checked}))} style={{width:18, height:18}}/>
-            <label style={{fontSize:13, fontWeight:600, color:form.pairingVerified ? 'var(--success)' : 'var(--muted)'}}>
-              Pairing Verified (Active-Ready)
-            </label>
-          </div>
         </div>
 
         {/* Installation */}
@@ -644,6 +544,16 @@ export default function JobOrders() {
         </div>
 
         <Field label="Notes"><Textarea value={form.notes} onChange={set('notes')} style={{minHeight:60}}/></Field>
+
+        {/* Billing Preview */}
+        <Div title="What will be billed on completion"/>
+        <div style={{marginBottom:12}}>
+          <BillingPreview
+            toc={form.toc}
+            customerId={form.customerId||customer?.customerId}
+            registrationNo={form.registrationNo}
+          />
+        </div>
 
         {formErr&&<div style={{padding:'10px 14px',background:'rgba(255,95,109,.08)',border:'1px solid rgba(255,95,109,.3)',borderRadius:8,color:'var(--danger)',fontSize:11,marginBottom:8}}>⚠ {formErr}</div>}
         <ModalButtons>

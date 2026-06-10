@@ -16,8 +16,8 @@ const techRoutes   = require('./routes/technicians');
 const dashRoutes   = require('./routes/dashboard');
 const quotRoutes   = require('./routes/quotations');
 const billRoutes   = require('./routes/billing');   // subscriptions + invoices
-const pricingRoutes = require('./routes/pricing');
-const miscRoutes   = require('./routes/misc');      // inventory,payments,users,contacts,drivers,tasks,notifications
+const miscRoutes   = require('./routes/misc');
+const ratesRoutes  = require('./routes/rates');      // inventory,payments,users,contacts,drivers,tasks,notifications
 
 const app  = express();
 const PORT = process.env.PORT || 4000;
@@ -45,8 +45,8 @@ app.use('/api/v1/assets',      assetRoutes);
 app.use('/api/v1/technicians', techRoutes);
 app.use('/api/v1/dashboard',   dashRoutes);
 app.use('/api/v1/quotations',  quotRoutes);
-app.use('/api/v1/pricing',     pricingRoutes);
 app.use('/api/v1',             billRoutes);   // /subscriptions /invoices
+app.use('/api/v1',             ratesRoutes);  // rates, billing preview, overrides
 app.use('/api/v1',             miscRoutes);   // everything else
 
 // 404

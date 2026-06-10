@@ -18,7 +18,7 @@ client.interceptors.request.use((config) => {
 client.interceptors.response.use(
   res => res,
   err => {
-    if (err.response?.status === 401 && !err.config?.url?.endsWith('/auth/login')) {
+    if (err.response?.status === 401) {
       useAppStore.getState().logout();
       window.location.href = '/login';
     }
@@ -112,11 +112,6 @@ export const api = {
     send:   id     => client.post(`/invoices/${id}/send`),
     void:   id     => client.post(`/invoices/${id}/void`),
   },
-  pricing: {
-    listOverrides:   customerId => client.get(`/pricing/overrides/${customerId}`),
-    upsertOverride:  d          => client.post('/pricing/overrides', d),
-    removeOverride:  (customerId, type) => client.delete(`/pricing/overrides/${customerId}/${type}`),
-  },
   payments: {
     list:   p      => client.get('/payments', { params: p }),
     create: d      => client.post('/payments', d),
@@ -143,6 +138,20 @@ export const api = {
     create: d       => client.post('/users', d),
     update: (id,d)  => client.patch(`/users/${id}`, d),
     toggle: id      => client.patch(`/users/${id}/toggle`),
+  },
+  rates: {
+    list:            ()          => client.get('/rates'),
+    update:          (type,d)    => client.patch(`/rates/${type}`, d),
+    tocRules:        ()          => client.get('/rates/toc-rules'),
+    updateTocRule:   (toc,d)     => client.patch(`/rates/toc-rules/${encodeURIComponent(toc)}`, d),
+    customerRates:   (custId)    => client.get(`/rates/customer/${custId}`),
+    setOverride:     (custId,type,d) => client.put(`/rates/customer/${custId}/${type}`, d),
+    removeOverride:  (custId,type)   => client.delete(`/rates/customer/${custId}/${type}`),
+  },
+  billing: {
+    preview:         (params)    => client.get('/billing/preview', { params }),
+    trigger:         (invNo)     => client.post(`/billing/trigger/${invNo}`),
+    history:         (custId)    => client.get(`/billing/history/${custId}`),
   },
   dashboard: {
     stats:     ()  => client.get('/dashboard'),

@@ -1,9 +1,6 @@
 const jwt    = require('jsonwebtoken');
 const { query } = require('../db');
 
-/**
- * Verify JWT, attach req.user with full permission set loaded from DB
- */
 async function auth(req, res, next) {
   const header = req.headers.authorization || '';
   if (!header.startsWith('Bearer '))
@@ -15,8 +12,16 @@ async function auth(req, res, next) {
 
     const { rows } = await query(`
       SELECT
-        u.user_id, u.name, u.email, u.role, u.role_id,
-        u.department, u.phone, u.active, u.technician_id,
+        u.id,
+        u.user_id,
+        u.name,
+        u.email,
+        u.role,
+        u.role_id,
+        u.department,
+        u.phone,
+        u.active,
+        u.technician_id,
         r.name  AS role_name,
         r.label AS role_label,
         r.color AS role_color,
@@ -26,13 +31,24 @@ async function auth(req, res, next) {
           ARRAY[]::TEXT[]
         ) AS permissions
       FROM users u
-      LEFT JOIN roles r            ON r.id  = u.role_id
+      LEFT JOIN roles r             ON r.id  = u.role_id
       LEFT JOIN role_permissions rp ON rp.role_id = r.id
-      LEFT JOIN permissions p      ON p.id  = rp.permission_id
+      LEFT JOIN permissions p       ON p.id  = rp.permission_id
       WHERE u.user_id = $1
-      GROUP BY u.id, u.user_id, u.name, u.email, u.role, u.role_id,
-               u.department, u.phone, u.active, u.technician_id,
-               r.name, r.label, r.color
+      GROUP BY
+        u.id,
+        u.user_id,
+        u.name,
+        u.email,
+        u.role,
+        u.role_id,
+        u.department,
+        u.phone,
+        u.active,
+        u.technician_id,
+        r.name,
+        r.label,
+        r.color
     `, [payload.userId]);
 
     if (!rows.length || !rows[0].active)
@@ -43,7 +59,7 @@ async function auth(req, res, next) {
       userId:       u.user_id,
       name:         u.name,
       email:        u.email,
-      role:         u.role_name || u.role,       // prefer DB role name
+      role:         u.role_name || u.role,
       roleId:       u.role_id,
       roleLabel:    u.role_label,
       roleColor:    u.role_color,
@@ -59,11 +75,6 @@ async function auth(req, res, next) {
   }
 }
 
-/**
- * Fine-grained permission check.
- * Usage: can('customers', 'read')
- *        can('quotations', 'approve')
- */
 function can(module, action) {
   return (req, res, next) => {
     if (!req.user)
@@ -81,9 +92,6 @@ function can(module, action) {
   };
 }
 
-/**
- * Legacy role guard — kept during transition. Prefer can() for new routes.
- */
 function rbac(...allowedRoles) {
   return (req, res, next) => {
     if (!req.user)
@@ -96,10 +104,6 @@ function rbac(...allowedRoles) {
   };
 }
 
-/**
- * Technician guard — adds req.technicianFilter so routes can
- * scope queries to only the technician's own jobs.
- */
 function technicianSelf(req, res, next) {
   if (req.user.role === 'technician') {
     req.technicianFilter = req.user.technicianId;

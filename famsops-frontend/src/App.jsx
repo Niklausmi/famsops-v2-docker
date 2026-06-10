@@ -19,6 +19,7 @@ import Subscriptions from './pages/Subscriptions';
 import Invoices      from './pages/Invoices';
 import Tasks         from './pages/Tasks';
 import Permissions   from './pages/Permissions';
+import Rates         from './pages/Rates';
 
 function NotFound() {
   return (
@@ -55,6 +56,7 @@ export default function App() {
           <Route path="/tasks"          element={<Tasks />} />
           <Route path="/technicians"    element={<Technicians />} />
           <Route path="/users"          element={<Users />} />
+          <Route path="/rates"          element={<Rates />} />
           <Route path="/permissions"    element={<Permissions />} />
           <Route path="*"               element={<NotFound />} />
         </Route>

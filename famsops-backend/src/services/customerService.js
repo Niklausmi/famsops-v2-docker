@@ -47,7 +47,7 @@ async function getById(customerId) {
 }
 
 async function getHub(customerId) {
-  const [custR, assetsR, ticketsR, jobsR, leadsR, paymentsR] = await Promise.all([
+  const [custR, assetsR, ticketsR, jobsR, leadsR, paymentsR, invoicesR] = await Promise.all([
     query('SELECT * FROM customers WHERE customer_id = $1', [customerId]),
 
     query(`SELECT a.*, t.model as tracker_model
@@ -76,6 +76,9 @@ async function getHub(customerId) {
     query(`SELECT payment_id, type, amount, paid_amount, balance_due, status, payment_date
            FROM payments WHERE customer_id = $1
            ORDER BY payment_date DESC LIMIT 5`, [customerId]),
+    query(`SELECT invoice_id, type, total, paid_amount, balance_due, status, issue_date, due_date
+           FROM invoices WHERE customer_id = $1
+           ORDER BY issue_date DESC LIMIT 5`, [customerId]),
   ]);
 
   if (!custR.rows.length) return null;
@@ -135,6 +138,16 @@ async function getHub(customerId) {
       balanceDue:  p.balance_due,
       status:      p.status,
       paymentDate: p.payment_date,
+    })),
+    invoices: invoicesR.rows.map(i => ({
+      invoiceId:   i.invoice_id,
+      type:        i.type,
+      total:       i.total,
+      paidAmount:  i.paid_amount,
+      balanceDue:  i.balance_due,
+      status:      i.status,
+      issueDate:   i.issue_date,
+      dueDate:     i.due_date,
     })),
     summary: {
       totalAssets:      assetsR.rows.length,

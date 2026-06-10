@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, RefreshCw, Search, ArrowRight, AlertTriangle, Ticket, ClipboardList, Target, CreditCard } from 'lucide-react';
+import { Plus, RefreshCw, Search, ArrowRight, AlertTriangle, Ticket, ClipboardList, Target, CreditCard, Receipt } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Topbar } from '../components/ui/Topbar';
 import { PageContent } from '../components/ui/Layout';
@@ -33,9 +33,6 @@ export default function Customers() {
   const [converting,setConverting]= useState(false);
   const [renewModal,setRenewModal]= useState(null);
   const [renewForm,setRenewForm] = useState({});
-  const [overrides, setOverrides] = useState([]);
-  const [showAddOverride, setShowAddOverride] = useState(false);
-  const [overrideForm, setOverrideForm] = useState({ itemType: 'service', customRate: '' });
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const PP = 24;
@@ -73,14 +70,7 @@ export default function Customers() {
   const openHub = async (c) => {
     setHubLoading(true);
     setHubData({ customer: c, assets:[], tickets:[], jobs:[], leads:[], payments:[], summary:{} });
-    try { 
-      const [{data}, {data: ov}] = await Promise.all([
-        api.customers.hub(c.customerId),
-        api.pricing.listOverrides(c.customerId)
-      ]); 
-      setHubData(data);
-      setOverrides(ov);
-    }
+    try { const {data} = await api.customers.hub(c.customerId); setHubData(data); }
     catch {}
     finally { setHubLoading(false); }
   };
@@ -120,25 +110,6 @@ export default function Customers() {
       if (hubData?.customer) { const {data} = await api.customers.hub(hubData.customer.customerId); setHubData(data); }
     } catch(e) { alert(e.response?.data?.message||'Renewal failed'); }
     finally { setSaving(false); }
-  };
-
-  const handleAddOverride = async () => {
-    if (!overrideForm.customRate) return;
-    try {
-      await api.pricing.upsertOverride({ ...overrideForm, customerId: c.customerId });
-      const { data: ov } = await api.pricing.listOverrides(c.customerId);
-      setOverrides(ov);
-      setShowAddOverride(false);
-      setOverrideForm({ itemType: 'service', customRate: '' });
-    } catch (e) { alert(e.response?.data?.message || 'Failed to save override'); }
-  };
-
-  const handleRemoveOverride = async (type) => {
-    try {
-      await api.pricing.removeOverride(c.customerId, type);
-      const { data: ov } = await api.pricing.listOverrides(c.customerId);
-      setOverrides(ov);
-    } catch (e) { alert(e.response?.data?.message || 'Failed to remove override'); }
   };
 
   const c   = hubData?.customer;
@@ -301,55 +272,6 @@ export default function Customers() {
               <InfoItem label="Payment Pref" value={c.preferredPayment}/>
             </InfoGrid>
 
-            {/* Pricing Overrides */}
-            <DrawerSection title="Pricing Overrides"/>
-            <div style={{background:'var(--surface2)', borderRadius:10, padding:12, marginBottom:18}}>
-              {overrides.length === 0 ? (
-                <div style={{fontSize:11, color:'var(--muted)', textAlign:'center', padding:'10px 0'}}>
-                  No custom pricing overrides defined.
-                </div>
-              ) : (
-                <div style={{display:'flex', flexDirection:'column', gap:8}}>
-                  {overrides.map(ov => (
-                    <div key={ov.itemType} style={{display:'flex', justifyContent:'space-between', alignItems:'center', background:'var(--surface)', padding:'8px 12px', borderRadius:6, border:'1px solid var(--border)'}}>
-                      <div>
-                        <div style={{fontSize:10, textTransform:'uppercase', letterSpacing:1, color:'var(--muted)'}}>{ov.itemType}</div>
-                        <div style={{fontSize:13, fontWeight:700, color:'var(--accent)'}}>PKR {Number(ov.customRate).toLocaleString()}</div>
-                      </div>
-                      <button className="btn btn-ghost btn-sm" style={{color:'var(--danger)', padding:4}} onClick={() => handleRemoveOverride(ov.itemType)}>
-                        Remove
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              
-              {!showAddOverride ? (
-                <button className="btn btn-ghost btn-sm" style={{width:'100%', marginTop:10, fontSize:10}} onClick={() => setShowAddOverride(true)}>
-                  + Add Custom Rate
-                </button>
-              ) : (
-                <div style={{marginTop:12, paddingTop:12, borderTop:'1px solid var(--border)', display:'flex', flexDirection:'column', gap:10}}>
-                  <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10}}>
-                    <Field label="Type">
-                      <Select value={overrideForm.itemType} onChange={e => setOverrideForm(f => ({...f, itemType: e.target.value}))}>
-                        <option value="service">Service</option>
-                        <option value="hardware">Hardware</option>
-                        <option value="subscription">Subscription</option>
-                      </Select>
-                    </Field>
-                    <Field label="Rate (PKR)">
-                      <Input type="number" value={overrideForm.customRate} onChange={e => setOverrideForm(f => ({...f, customRate: e.target.value}))} />
-                    </Field>
-                  </div>
-                  <div style={{display:'flex', gap:8}}>
-                    <button className="btn btn-solid btn-sm" style={{flex:1}} onClick={handleAddOverride}>Save</button>
-                    <button className="btn btn-ghost btn-sm" onClick={() => setShowAddOverride(false)}>Cancel</button>
-                  </div>
-                </div>
-              )}
-            </div>
-
             {/* Assets with AMC status + Renew button */}
             {hubData.assets?.length>0&&(
               <>
@@ -448,6 +370,25 @@ export default function Customers() {
                     <div style={{display:'flex',justifyContent:'space-between',marginTop:4}}>
                       <span style={{fontSize:9,color:'var(--muted)',fontFamily:'monospace'}}>{t.ticketId}</span>
                       <Badge variant={t.status?.toLowerCase()}>{t.status}</Badge>
+                    </div>
+                  </div>
+                ))}
+              </>
+            )}
+
+            {/* Invoices */}
+            {hubData.invoices?.length>0&&(
+              <>
+                <DrawerSection title="Recent Invoices"/>
+                {hubData.invoices.map(i=>(
+                  <div key={i.invoiceId} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid var(--border)'}}>
+                    <div>
+                      <div style={{fontSize:11,color:'var(--text)',fontFamily:'monospace'}}>{i.invoiceId}</div>
+                      <div style={{fontSize:10,color:'var(--muted)',marginTop:2}}>{(i.type||'').replace('_',' ')} · Due: {formatDate(i.dueDate)}</div>
+                    </div>
+                    <div style={{textAlign:'right'}}>
+                      <div style={{fontFamily:'Syne',fontWeight:700,fontSize:12}}>PKR {Number(i.total||0).toLocaleString()}</div>
+                      {Number(i.balanceDue)>0&&<div style={{fontSize:10,color:'var(--danger)'}}>Balance: PKR {Number(i.balanceDue).toLocaleString()}</div>}
                     </div>
                   </div>
                 ))}

@@ -4,7 +4,7 @@ import {
   Car, Target, Package, UserCog, CreditCard,
   LogOut, Menu, Sun, Moon, Wrench,
   FileText, RefreshCw, Bell, CheckSquare,
-  Receipt, Layers, Shield,
+  Receipt, Layers, Shield, DollarSign,
 } from 'lucide-react';
 import { useAppStore } from '../store';
 
@@ -25,6 +25,7 @@ const ALL_LINKS = [
   { to: '/tasks',         icon: CheckSquare,       label: 'Tasks',          perm: ['tasks','read'] },
   { to: '/technicians',   icon: Wrench,            label: 'Technicians',    perm: ['technicians','read'] },
   { to: '/users',         icon: UserCog,           label: 'Users',          perm: ['users','read'] },
+  { to: '/rates',          icon: DollarSign,        label: 'Rate Config',    perm: ['payments','update'] },
   { to: '/permissions',    icon: Shield,            label: 'Permissions',    perm: ['users','update'] },
 ];
 
