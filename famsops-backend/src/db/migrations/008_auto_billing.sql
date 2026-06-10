@@ -161,7 +161,7 @@ BEGIN
   ) VALUES (
     v_inv_id, 'Draft', v_rule.invoice_type,
     NEW.customer_id, NEW.customer_name, NEW.contact,
-    NEW.invoice_number,
+    NEW.work_order_id,
     CURRENT_DATE, v_due,
     0, 0, 'PKR',
     'Auto-generated — Job: ' || NEW.invoice_number || ' (' || NEW.toc || ')',
@@ -210,7 +210,7 @@ BEGIN
     ) VALUES (
       v_sub_id, 'Active',
       NEW.customer_id, NEW.customer_name,
-      'AST-' || NEW.invoice_number, NEW.invoice_number,
+      'AST-' || NEW.invoice_number, NEW.work_order_id,
       COALESCE(NEW.package, 'Standard'), 'monthly',
       v_sub_rate, 1,
       CURRENT_DATE, v_next_bill,

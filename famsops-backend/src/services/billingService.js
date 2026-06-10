@@ -162,7 +162,7 @@ async function triggerBilling(invoiceNumber, userId) {
       ) VALUES ($1,'Draft',$2,$3,$4,$5,$6,CURRENT_DATE,$7,0,0,'PKR',$8,$9)
     `, [invId, rule.invoice_type,
         job.customer_id, job.customer_name, job.contact,
-        invoiceNumber, dueDate,
+        job.work_order_id || null, dueDate,
         `Auto-generated — Job: ${invoiceNumber} (${job.toc})`,
         userId || job.created_by || 'system']);
 
@@ -212,7 +212,7 @@ async function triggerBilling(invoiceNumber, userId) {
         ) VALUES ($1,'Active',$2,$3,$4,$5,$6,'monthly',$7,1,CURRENT_DATE,$8,TRUE,$9)
       `, [subId,
           job.customer_id, job.customer_name,
-          'AST-' + invoiceNumber, invoiceNumber,
+          'AST-' + invoiceNumber, job.work_order_id || null,
           job.package || 'Standard',
           subRate, nextBill,
           userId || job.created_by || 'system']);

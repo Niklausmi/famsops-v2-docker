@@ -40,7 +40,8 @@ BEGIN
       NEW.install_city,
       'Active'
     )
-    ON CONFLICT (registration_no) DO UPDATE SET
+    ON CONFLICT (asset_id) DO UPDATE SET
+      registration_no = EXCLUDED.registration_no,
       make           = EXCLUDED.make,
       model          = EXCLUDED.model,
       color          = EXCLUDED.color,
