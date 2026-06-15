@@ -24,6 +24,9 @@ const BLANK = {
   trackerIMEI:'', simNumber:'', technicianId:'', installerName:'', installCity:'', package:'',
   amcDuration:'', amcExpiry:'', status:'Scheduled',
   amount:'', paymentStatus:'', paymentMethod:'', notes:'', followupDate:'',
+  leadId:'',
+  // manual per-job pricing overrides (override billing service rates for this job only)
+  priceOverrides:{},  // { rate_type: amount }
 };
 
 const STATUS_DOT_COLOR = {
@@ -254,6 +257,8 @@ export default function JobOrders() {
   const [showBillingPreview, setShowBillingPreview] = useState(false);
 
   const [technicians,setTechs]   = useState([]);
+  const [linkedLead,setLinkedLead] = useState(null);   // lead data when converted
+  const [standardRates,setStdRates] = useState([]);    // for override UI
 
   const [searchParams] = useSearchParams();
 
@@ -262,6 +267,11 @@ export default function JobOrders() {
     try { const {data} = await api.jobOrders.list(); setJobs(data.data||data||[]); }
     catch { setJobs([]); }
     finally { setLoading(false); }
+  };
+
+  const loadStandardRates = async () => {
+    try { const r = await api.rates.list(); setStdRates(r.data.data||r.data||[]); }
+    catch {}
   };
 
   const loadInventory = async () => {
@@ -280,7 +290,40 @@ export default function JobOrders() {
   useEffect(() => {
     load();
     api.technicians.list().then(r=>setTechs(r.data.data||r.data||[])).catch(()=>{});
-    if (searchParams.get('new')==='1') openNew();
+    const leadId = searchParams.get('leadId');
+    if (searchParams.get('new')==='1') {
+      if (leadId) {
+        // Pre-fill job order from linked lead
+        api.leads.get(leadId).then(r => {
+          const lead = r.data;
+          setLinkedLead(lead);
+          setCustomer(lead.customerId ? {
+            customerId:lead.customerId, customerName:lead.customerName,
+            contact:lead.contact, city:lead.city, rac:lead.rac||'', company:lead.company||''
+          } : null);
+          setForm(f => ({
+            ...f,
+            customerId:    lead.customerId   || '',
+            customerName:  lead.customerName || '',
+            contact:       lead.contact      || '',
+            city:          lead.city         || '',
+            company:       lead.company      || '',
+            package:       lead.package      || '',
+            registrationNo:lead.plateNumber  || '',
+            vehicleMake:   lead.vehicleMake  || '',
+            vehicleModel:  lead.vehicleModel || '',
+            vehicleColor:  lead.vehicleColor || '',
+            amount:        lead.amount       || '',
+            leadId:        lead.leadId       || '',
+          }));
+          setShowEdit(true);
+          loadInventory();
+          loadStandardRates();
+        }).catch(() => openNew());
+      } else {
+        openNew();
+      }
+    }
   }, []);
 
   const filtered = useMemo(() => {
@@ -301,19 +344,23 @@ export default function JobOrders() {
   const set = k => e => setForm(f=>({...f,[k]:e.target.value}));
 
   const openNew = () => {
-    setForm({...BLANK, date:new Date().toISOString().split('T')[0]});
+    setForm({...BLANK, date:new Date().toISOString().split('T')[0], priceOverrides:{}});
     setCustomer(null); setCustErr(''); setFormErr('');
+    setLinkedLead(null);
     setShowEdit(true);
     loadInventory();
+    loadStandardRates();
   };
 
   const openEdit = j => {
-    setForm({...BLANK,...j});
+    setForm({...BLANK, ...j, priceOverrides: j.priceOverrides || {}});
     setCustomer(j.customerId ? {customerId:j.customerId,customerName:j.customerName,contact:j.contact,city:j.city} : null);
     setCustErr(''); setFormErr('');
+    setLinkedLead(null);
     setSelected(null);
     setShowEdit(true);
     loadInventory();
+    loadStandardRates();
   };
 
   const onSelectCustomer = c => {
@@ -328,7 +375,25 @@ export default function JobOrders() {
     if (!form.installerName && !form.technicianId) { setFormErr('Select a technician or enter installer name'); return; }
     setSaving(true); setFormErr('');
     try {
-      const payload = {...form, customerId:customer.customerId, customerName:customer.customerName, contact:customer.contact, city:customer.city||''};
+      // Clean priceOverrides — strip blank entries before sending
+      const cleanOverrides = form.priceOverrides
+        ? Object.fromEntries(
+            Object.entries(form.priceOverrides)
+              .filter(([, v]) => v != null && v !== '' && !isNaN(v))
+              .map(([k, v]) => [k, Number(v)])
+          )
+        : null;
+
+      const payload = {
+        ...form,
+        customerId:     customer.customerId,
+        customerName:   customer.customerName,
+        contact:        customer.contact,
+        city:           customer.city || '',
+        leadId:         form.leadId || linkedLead?.leadId || undefined,
+        priceOverrides: cleanOverrides && Object.keys(cleanOverrides).length > 0
+          ? cleanOverrides : null,
+      };
       if (form.invoiceNumber) await api.jobOrders.update(form.invoiceNumber, payload);
       else                    await api.jobOrders.create(payload);
       setShowEdit(false); load();
@@ -545,13 +610,76 @@ export default function JobOrders() {
 
         <Field label="Notes"><Textarea value={form.notes} onChange={set('notes')} style={{minHeight:60}}/></Field>
 
+        {/* Manual Pricing Overrides */}
+        <Div title="Pricing — override any charge for this job only"/>
+        <div style={{marginBottom:12}}>
+          {/* Amount from lead banner */}
+          {linkedLead?.amount && (
+            <div style={{padding:'8px 12px',background:'rgba(56,217,245,.07)',border:'1px solid rgba(56,217,245,.2)',borderRadius:8,marginBottom:10,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+              <span style={{fontSize:11,color:'var(--accent)'}}>💡 Amount from linked lead: <strong>PKR {Number(linkedLead.amount).toLocaleString('en-PK')}</strong></span>
+              <button className="btn btn-ghost btn-sm" style={{fontSize:9}} onClick={()=>setForm(f=>({...f,amount:linkedLead.amount}))}>
+                Use this amount
+              </button>
+            </div>
+          )}
+
+          {/* Override grid */}
+          {standardRates.filter(r=>r.is_active).map(rate => (
+            <div key={rate.rate_type} style={{display:'grid',gridTemplateColumns:'1fr 140px',gap:8,alignItems:'center',marginBottom:6}}>
+              <div>
+                <span style={{fontSize:11,color:'var(--text)'}}>{rate.label}</span>
+                <span style={{fontSize:10,color:'var(--muted)',marginLeft:8}}>
+                  Standard: PKR {Number(rate.amount).toLocaleString('en-PK')}
+                </span>
+              </div>
+              <div style={{position:'relative'}}>
+                <input
+                  className="field-input"
+                  type="number"
+                  min="0"
+                  style={{
+                    fontSize:11, padding:'6px 10px',
+                    borderColor: form.priceOverrides?.[rate.rate_type] != null
+                      ? 'rgba(255,179,71,.5)' : undefined,
+                    background: form.priceOverrides?.[rate.rate_type] != null
+                      ? 'rgba(255,179,71,.05)' : undefined,
+                  }}
+                  placeholder={String(rate.amount)}
+                  value={form.priceOverrides?.[rate.rate_type] ?? ''}
+                  onChange={e => {
+                    const val = e.target.value;
+                    setForm(f => ({
+                      ...f,
+                      priceOverrides: {
+                        ...f.priceOverrides,
+                        [rate.rate_type]: val === '' ? undefined : Number(val),
+                      }
+                    }));
+                  }}
+                />
+                {form.priceOverrides?.[rate.rate_type] != null && (
+                  <span style={{position:'absolute',right:6,top:'50%',transform:'translateY(-50%)',fontSize:9,color:'var(--warn)',fontWeight:700,pointerEvents:'none'}}>
+                    CUSTOM
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+          <div style={{fontSize:10,color:'var(--muted)',marginTop:6}}>
+            Leave blank to use standard or customer rates. Amber = custom override active for this job.
+          </div>
+        </div>
+
         {/* Billing Preview */}
         <Div title="What will be billed on completion"/>
+
         <div style={{marginBottom:12}}>
           <BillingPreview
             toc={form.toc}
             customerId={form.customerId||customer?.customerId}
             registrationNo={form.registrationNo}
+            priceOverrides={form.priceOverrides}
+            leadAmount={linkedLead?.amount || form.amount || null}
           />
         </div>
 

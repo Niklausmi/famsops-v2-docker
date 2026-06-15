@@ -149,7 +149,9 @@ export const api = {
     removeOverride:  (custId,type)   => client.delete(`/rates/customer/${custId}/${type}`),
   },
   billing: {
-    preview:         (params)    => client.get('/billing/preview', { params }),
+    preview:         (params, overrides) => overrides
+      ? client.post('/billing/preview', { ...params, priceOverrides: overrides })
+      : client.get('/billing/preview', { params }),
     trigger:         (invNo)     => client.post(`/billing/trigger/${invNo}`),
     history:         (custId)    => client.get(`/billing/history/${custId}`),
   },

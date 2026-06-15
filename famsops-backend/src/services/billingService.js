@@ -1,99 +1,36 @@
 const { query, getClient } = require('../db');
 
 /**
- * Resolve the applicable rate for a customer + rate type.
- * Customer override → standard rate → 0.
+ * Rate resolution priority:
+ *   1. Job-level manual override (price_overrides JSONB on job_order)
+ *   2. Customer pricing override (pricing_overrides table)
+ *   3. Standard rate (standard_rates table)
+ *   4. Zero (triggers warning in preview)
  */
-async function resolveRate(customerId, rateType) {
-  // Check customer override first
+async function resolveRateForJob(customerId, rateType, jobOverrides) {
+  // 1. Job-level override
+  if (jobOverrides && jobOverrides[rateType] != null) {
+    return Number(jobOverrides[rateType]);
+  }
+  // 2. Customer override
   if (customerId) {
-    const { rows: ov } = await query(
+    const { rows } = await query(
       'SELECT custom_rate FROM pricing_overrides WHERE customer_id=$1 AND item_type=$2',
       [customerId, rateType]
     );
-    if (ov.length) return Number(ov[0].custom_rate);
+    if (rows.length) return Number(rows[0].custom_rate);
   }
-  // Fall back to standard rate
-  const { rows: sr } = await query(
+  // 3. Standard rate
+  const { rows } = await query(
     'SELECT amount FROM standard_rates WHERE rate_type=$1 AND is_active=TRUE',
     [rateType]
   );
-  return sr.length ? Number(sr[0].amount) : 0;
+  return rows.length ? Number(rows[0].amount) : 0;
 }
 
-/**
- * Build a preview of what will be billed for a given TOC.
- * Called BEFORE job completion so the user can review it.
- */
-async function previewBilling(toc, customerId, registrationNo) {
-  const { rows: rules } = await query(
-    'SELECT * FROM toc_billing_rules WHERE toc=$1 AND is_active=TRUE',
-    [toc]
-  );
-  if (!rules.length) return { supported: false, toc, items: [], total: 0 };
-
-  const rule = rules[0];
-  const chargeTypes = rule.charge_types || [];
-  const items = [];
-  let total = 0;
-
-  for (const rateType of chargeTypes) {
-    const { rows: sr } = await query(
-      'SELECT label, unit FROM standard_rates WHERE rate_type=$1',
-      [rateType]
-    );
-    const label  = sr[0]?.label || rateType;
-    const unit   = sr[0]?.unit  || 'unit';
-    const amount = await resolveRate(customerId, rateType);
-
-    items.push({
-      rateType,
-      description: label + (registrationNo ? ` — ${registrationNo}` : ''),
-      qty:    1,
-      unit,
-      unitPrice: amount,
-      total:  amount,
-      isCustomRate: await hasOverride(customerId, rateType),
-    });
-    total += amount;
-  }
-
-  // Monthly SaaS preview for 'create' action
-  let subscriptionPreview = null;
-  if (rule.subscription_action === 'create') {
-    const monthlyRate = await resolveRate(customerId, 'monthly_saas');
-    subscriptionPreview = {
-      action:      'create',
-      planName:    'Standard',
-      billingCycle:'monthly',
-      monthlyRate,
-      note:        'A monthly subscription will be activated at PKR ' + monthlyRate.toLocaleString('en-PK') + '/vehicle/month',
-    };
-  } else if (rule.subscription_action === 'cancel') {
-    subscriptionPreview = { action:'cancel', note:'Existing subscription will be cancelled.' };
-  } else if (rule.subscription_action === 'renew') {
-    subscriptionPreview = { action:'renew', note:'Subscription end date will be extended by 1 year.' };
-  } else if (rule.subscription_action === 'continue') {
-    subscriptionPreview = { action:'continue', note:'Existing subscription continues unchanged.' };
-  } else if (rule.subscription_action === 'transfer') {
-    subscriptionPreview = { action:'transfer', note:'Subscription will be transferred to the new owner/vehicle.' };
-  }
-
-  return {
-    supported:           true,
-    toc,
-    rule: {
-      subscriptionAction: rule.subscription_action,
-      invoiceType:        rule.invoice_type,
-      paymentDueDays:     rule.payment_due_days,
-    },
-    items,
-    subtotal: total,
-    total,
-    subscriptionPreview,
-    paymentDueDate: new Date(Date.now() + rule.payment_due_days * 86400000)
-      .toISOString().split('T')[0],
-  };
+// Backwards compat alias
+async function resolveRate(customerId, rateType) {
+  return resolveRateForJob(customerId, rateType, null);
 }
 
 async function hasOverride(customerId, rateType) {
@@ -106,15 +43,99 @@ async function hasOverride(customerId, rateType) {
 }
 
 /**
- * Manually trigger billing for a completed job order.
- * Used as a fallback if the DB trigger didn't fire (e.g. bulk update).
- * Safe to call multiple times — checks if invoice already exists.
+ * Preview what will be billed for a given TOC.
+ * Accepts optional jobOverrides so the form can show live preview
+ * as the user edits manual prices.
+ */
+async function previewBilling(toc, customerId, registrationNo, jobOverrides) {
+  const { rows: rules } = await query(
+    'SELECT * FROM toc_billing_rules WHERE toc=$1 AND is_active=TRUE',
+    [toc]
+  );
+  if (!rules.length) return { supported: false, toc, items: [], total: 0 };
+
+  const rule        = rules[0];
+  const chargeTypes = rule.charge_types || [];
+  const items       = [];
+  let   total       = 0;
+
+  for (const rateType of chargeTypes) {
+    const { rows: sr } = await query(
+      'SELECT label, unit FROM standard_rates WHERE rate_type=$1', [rateType]
+    );
+    const label        = sr[0]?.label || rateType;
+    const unit         = sr[0]?.unit  || 'unit';
+    const standardRate = await resolveRate(customerId, rateType);
+    const effectiveRate= await resolveRateForJob(customerId, rateType, jobOverrides);
+    const isJobOverride    = jobOverrides && jobOverrides[rateType] != null;
+    const isCustomerOverride = !isJobOverride && await hasOverride(customerId, rateType);
+
+    items.push({
+      rateType,
+      description:    label + (registrationNo ? ` — ${registrationNo}` : ''),
+      qty:            1,
+      unit,
+      standardRate,
+      unitPrice:      effectiveRate,
+      total:          effectiveRate,
+      isJobOverride,
+      isCustomerOverride,
+      overrideLabel:  isJobOverride     ? 'JOB OVERRIDE'
+                    : isCustomerOverride ? 'CUSTOMER RATE' : null,
+    });
+    total += effectiveRate;
+  }
+
+  // Monthly SaaS preview for subscription create
+  let subscriptionPreview = null;
+  const subActionLabels = {
+    create:   'New subscription will be created',
+    continue: 'Existing subscription continues',
+    cancel:   'Subscription will be cancelled',
+    renew:    'Subscription extended +1 year',
+    transfer: 'Subscription will be transferred',
+    none:     'No subscription change',
+  };
+
+  if (rule.subscription_action === 'create') {
+    const monthlyRate = await resolveRateForJob(customerId, 'monthly_saas', jobOverrides);
+    subscriptionPreview = {
+      action: 'create',
+      monthlyRate,
+      note: `Monthly subscription activated at PKR ${monthlyRate.toLocaleString('en-PK')}/vehicle/month`,
+    };
+  } else {
+    subscriptionPreview = {
+      action: rule.subscription_action,
+      note:   subActionLabels[rule.subscription_action] || 'No change',
+    };
+  }
+
+  return {
+    supported:     true,
+    toc,
+    rule: {
+      subscriptionAction: rule.subscription_action,
+      invoiceType:        rule.invoice_type,
+      paymentDueDays:     rule.payment_due_days,
+    },
+    items,
+    subtotal:      total,
+    total,
+    subscriptionPreview,
+    paymentDueDate: new Date(Date.now() + rule.payment_due_days * 86400000)
+      .toISOString().split('T')[0],
+  };
+}
+
+/**
+ * Manually trigger billing for a completed job.
+ * Safe — skips if invoice already exists.
+ * Respects job.price_overrides JSONB.
  */
 async function triggerBilling(invoiceNumber, userId) {
-  // Check job exists and is Completed
   const { rows: jobs } = await query(
-    'SELECT * FROM job_orders WHERE invoice_number=$1',
-    [invoiceNumber]
+    'SELECT * FROM job_orders WHERE invoice_number=$1', [invoiceNumber]
   );
   if (!jobs.length)
     throw Object.assign(new Error('Job order not found'), { status: 404 });
@@ -123,36 +144,32 @@ async function triggerBilling(invoiceNumber, userId) {
   if (job.status !== 'Completed')
     throw Object.assign(new Error('Job must be Completed before billing'), { status: 400 });
 
-  // Check if invoice already exists for this work order
+  // Skip if already billed
   const { rows: existing } = await query(
-    'SELECT invoice_id FROM invoices WHERE work_order_id=$1',
-    [invoiceNumber]
+    'SELECT invoice_id FROM invoices WHERE work_order_id=$1', [invoiceNumber]
   );
   if (existing.length)
     return { alreadyBilled: true, invoiceId: existing[0].invoice_id };
 
-  // Get billing rule
   const { rows: rules } = await query(
-    'SELECT * FROM toc_billing_rules WHERE toc=$1 AND is_active=TRUE',
-    [job.toc]
+    'SELECT * FROM toc_billing_rules WHERE toc=$1 AND is_active=TRUE', [job.toc]
   );
   if (!rules.length)
     return { supported: false, message: `No billing rule for TOC: ${job.toc}` };
 
   const rule        = rules[0];
   const chargeTypes = rule.charge_types || [];
+  const jobOverrides= job.price_overrides || null;
   const client      = await getClient();
 
   try {
     await client.query('BEGIN');
 
-    // Invoice ID
     const { rows: seqRow } = await client.query("SELECT nextval('seq_invoice') AS n");
-    const invId    = 'INV-' + String(seqRow[0].n).padStart(6, '0');
-    const dueDate  = new Date(Date.now() + rule.payment_due_days * 86400000)
+    const invId   = 'INV-' + String(seqRow[0].n).padStart(6, '0');
+    const dueDate = new Date(Date.now() + rule.payment_due_days * 86400000)
       .toISOString().split('T')[0];
 
-    // Create invoice header
     await client.query(`
       INSERT INTO invoices (
         invoice_id, status, type,
@@ -162,20 +179,23 @@ async function triggerBilling(invoiceNumber, userId) {
       ) VALUES ($1,'Draft',$2,$3,$4,$5,$6,CURRENT_DATE,$7,0,0,'PKR',$8,$9)
     `, [invId, rule.invoice_type,
         job.customer_id, job.customer_name, job.contact,
-        job.work_order_id || null, dueDate,
-        `Auto-generated — Job: ${invoiceNumber} (${job.toc})`,
+        invoiceNumber, dueDate,
+        `Auto-generated — Job: ${invoiceNumber} (${job.toc})`
+          + (jobOverrides ? ' [custom rates applied]' : ''),
         userId || job.created_by || 'system']);
 
-    // Line items
     let subtotal = 0;
     let sort     = 0;
+
     for (const rateType of chargeTypes) {
-      const amount = await resolveRate(job.customer_id, rateType);
+      const amount = await resolveRateForJob(job.customer_id, rateType, jobOverrides);
       const { rows: sr } = await query(
         'SELECT label, unit FROM standard_rates WHERE rate_type=$1', [rateType]
       );
+      const isOverridden = jobOverrides && jobOverrides[rateType] != null;
       const label = (sr[0]?.label || rateType)
-        + (job.registration_no ? ` — ${job.registration_no}` : '');
+        + (job.registration_no ? ` — ${job.registration_no}` : '')
+        + (isOverridden ? ' *' : '');
 
       await client.query(`
         INSERT INTO invoice_items (invoice_id, sort_order, description, qty, unit, unit_price)
@@ -186,70 +206,66 @@ async function triggerBilling(invoiceNumber, userId) {
       sort++;
     }
 
-    // Update totals
+    // Add lead reference line if amount differs from calculated total
+    if (job.amount && Number(job.amount) > 0 &&
+        Number(job.amount) !== subtotal && job.lead_id) {
+      await client.query(`
+        INSERT INTO invoice_items (invoice_id, sort_order, description, qty, unit, unit_price)
+        VALUES ($1,$2,$3,1,'reference',$4)
+      `, [invId, sort,
+          `Agreed amount from lead ${job.lead_id} (reconcile with items above)`,
+          job.amount]);
+      sort++;
+    }
+
     await client.query(
       'UPDATE invoices SET subtotal=$2, total=$2 WHERE invoice_id=$1',
       [invId, subtotal]
     );
 
-    // Subscription handling
     let subId = null;
+
     if (rule.subscription_action === 'create') {
-      const subRate = await resolveRate(job.customer_id, 'monthly_saas');
+      const subRate = await resolveRateForJob(job.customer_id, 'monthly_saas', jobOverrides);
       const { rows: subSeq } = await client.query("SELECT nextval('seq_sub') AS n");
       subId = 'SUB-' + String(subSeq[0].n).padStart(6, '0');
-
       const nextBill = new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0];
 
       await client.query(`
         INSERT INTO subscriptions (
           subscription_id, status, customer_id, customer_name,
-          asset_id, work_order_id,
-          plan_name, billing_cycle,
-          rate_per_vehicle, vehicle_count,
-          start_date, next_billing_date,
+          asset_id, work_order_id, plan_name, billing_cycle,
+          rate_per_vehicle, vehicle_count, start_date, next_billing_date,
           auto_renew, created_by
         ) VALUES ($1,'Active',$2,$3,$4,$5,$6,'monthly',$7,1,CURRENT_DATE,$8,TRUE,$9)
-      `, [subId,
-          job.customer_id, job.customer_name,
-          'AST-' + invoiceNumber, job.work_order_id || null,
-          job.package || 'Standard',
-          subRate, nextBill,
+      `, [subId, job.customer_id, job.customer_name,
+          'AST-' + invoiceNumber, invoiceNumber,
+          job.package || 'Standard', subRate, nextBill,
           userId || job.created_by || 'system']);
 
       await client.query(
-        'UPDATE invoices SET subscription_id=$2 WHERE invoice_id=$1',
-        [invId, subId]
+        'UPDATE invoices SET subscription_id=$2 WHERE invoice_id=$1', [invId, subId]
       );
 
     } else if (rule.subscription_action === 'cancel') {
       await client.query(`
-        UPDATE subscriptions
-        SET status='Cancelled', cancelled_at=NOW(),
-            cancel_reason='Auto-cancelled via job: ' || $1
+        UPDATE subscriptions SET status='Cancelled', cancelled_at=NOW(),
+          cancel_reason='Auto-cancelled via job: '||$1
         WHERE asset_id=$2 AND customer_id=$3 AND status IN ('Active','Pending')
       `, [invoiceNumber, 'AST-' + invoiceNumber, job.customer_id]);
 
     } else if (rule.subscription_action === 'renew') {
       await client.query(`
         UPDATE subscriptions
-        SET end_date=COALESCE(end_date, CURRENT_DATE) + INTERVAL '1 year',
+        SET end_date=COALESCE(end_date,CURRENT_DATE)+INTERVAL '1 year',
             last_billed_date=CURRENT_DATE,
-            next_billing_date=CURRENT_DATE + INTERVAL '1 year'
+            next_billing_date=CURRENT_DATE+INTERVAL '1 year'
         WHERE asset_id=$1 AND customer_id=$2 AND status='Active'
       `, ['AST-' + invoiceNumber, job.customer_id]);
     }
 
     await client.query('COMMIT');
-
-    return {
-      success:       true,
-      invoiceId:     invId,
-      subscriptionId:subId,
-      subtotal,
-      lineItems:     chargeTypes.length,
-      subscriptionAction: rule.subscription_action,
-    };
+    return { success: true, invoiceId: invId, subscriptionId: subId, subtotal, sort };
 
   } catch (err) {
     await client.query('ROLLBACK');
@@ -266,7 +282,6 @@ async function getRatesWithOverrides(customerId) {
   const { rows: rates } = await query(
     'SELECT * FROM standard_rates ORDER BY rate_type ASC'
   );
-
   let overrides = {};
   if (customerId) {
     const { rows: ov } = await query(
@@ -275,7 +290,6 @@ async function getRatesWithOverrides(customerId) {
     );
     ov.forEach(o => { overrides[o.item_type] = { rate: Number(o.custom_rate), notes: o.notes }; });
   }
-
   return rates.map(r => ({
     rateType:     r.rate_type,
     label:        r.label,
@@ -290,4 +304,10 @@ async function getRatesWithOverrides(customerId) {
   }));
 }
 
-module.exports = { previewBilling, triggerBilling, resolveRate, getRatesWithOverrides };
+module.exports = {
+  previewBilling,
+  triggerBilling,
+  resolveRate,
+  resolveRateForJob,
+  getRatesWithOverrides,
+};

@@ -122,11 +122,21 @@ router.delete('/rates/customer/:customerId/:rateType', auth, can('payments', 'up
 
 // GET /api/v1/billing/preview?toc=New+Installation&customerId=CUST-000001&registrationNo=ABC-123
 // Returns exactly what will be billed when this job completes
+// GET or POST — GET for simple preview, POST when job overrides are present
 router.get('/billing/preview', auth, can('invoices', 'read'), async (req, res) => {
   const { toc, customerId, registrationNo } = req.query;
   if (!toc) return res.status(400).json({ message: 'toc required' });
+  const preview = await billingSvc.previewBilling(toc, customerId, registrationNo, null);
+  res.json(preview);
+});
 
-  const preview = await billingSvc.previewBilling(toc, customerId, registrationNo);
+// POST /api/v1/billing/preview — includes priceOverrides in body
+router.post('/billing/preview', auth, can('invoices', 'read'), async (req, res) => {
+  const { toc, customerId, registrationNo, priceOverrides } = req.body;
+  if (!toc) return res.status(400).json({ message: 'toc required' });
+  const preview = await billingSvc.previewBilling(
+    toc, customerId, registrationNo, priceOverrides || null
+  );
   res.json(preview);
 });
 
