@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, RefreshCw, Search } from 'lucide-react';
+import { Plus, RefreshCw, Search, FileText, Loader } from 'lucide-react';
 import { Topbar } from '../components/ui/Topbar';
 import { PageContent } from '../components/ui/Layout';
 import { StatTile } from '../components/ui/StatTile';
@@ -14,6 +14,17 @@ import { formatDate, genId } from '../lib/utils';
 const PAY_METHODS  = ['Cash','Bank Transfer','Cheque','Online / Mobile','Credit / Installment'];
 const PAY_STATUSES = ['Pending','Received','Partial','Overdue','Refunded'];
 const PAY_TYPES    = ['Installation Fee','AMC Renewal','Replacement','Repair','SIM Recharge','Advance','Other'];
+
+const TOC_TO_TYPE = {
+  'New Installation': 'Installation Fee',
+  'Replacement':      'Replacement',
+  'Reinstallation':   'Installation Fee',
+  'Removal':          'Other',
+  'Vehicle Transfer': 'Other',
+  'Ownership Transfer':'Other',
+  'Inspection':       'Other',
+  'AMC Visit':        'AMC Renewal',
+};
 
 const STATUS_COLORS = {
   Received: 'badge-active',
@@ -48,6 +59,12 @@ export default function Payments() {
   const [allCustomers, setAllCustomers] = useState([]);
   const [custResults, setCustResults] = useState([]);
 
+  // Invoice lookup state
+  const [invLookup, setInvLookup]   = useState('');
+  const [invLoading, setInvLoading] = useState(false);
+  const [invMsg, setInvMsg]         = useState('');
+  const [invMsgOk, setInvMsgOk]     = useState(false);
+
   const load = async () => {
     setLoading(true);
     try { const { data } = await api.payments.list(); setPayments(data.data || data || []); }
@@ -77,6 +94,63 @@ export default function Payments() {
     setCustResults([]);
   };
 
+  // ── Auto-fill from invoice ──────────────────────────────────
+  const lookupInvoice = async () => {
+    const ref = invLookup.trim();
+    if (!ref) return;
+    setInvLoading(true); setInvMsg(''); setInvMsgOk(false);
+    try {
+      const { data: inv } = await api.invoices.get(ref);
+      if (!inv || !inv.invoiceId) { setInvMsg('Invoice not found'); return; }
+
+      // Determine payment type from invoice type / work order toc
+      let payType = 'Installation Fee';
+      if (inv.type === 'recurring') payType = 'AMC Renewal';
+      else if (inv.type === 'renewal') payType = 'AMC Renewal';
+
+      // Try to get toc from the linked job order
+      if (inv.workOrderId) {
+        try {
+          const { data: jo } = await api.jobOrders.get(inv.workOrderId);
+          if (jo?.toc) payType = TOC_TO_TYPE[jo.toc] || payType;
+        } catch {}
+      }
+
+      // Balance due = total - already paid
+      const balanceDue = Number(inv.total || 0) - Number(inv.paidAmount || 0);
+      const isPaid     = inv.status === 'Paid';
+
+      // Pre-fill customer
+      if (inv.customerId) {
+        const match = allCustomers.find(c => c.customerId === inv.customerId);
+        if (match) onSelectCustomer(match);
+        else {
+          setCustomer({ customerId: inv.customerId, customerName: inv.customerName, contact: inv.contact });
+          setForm(f => ({ ...f, customerId: inv.customerId, customerName: inv.customerName, contact: inv.contact || '' }));
+        }
+      }
+
+      setForm(f => ({
+        ...f,
+        invoiceRef:  inv.invoiceId,
+        amount:      balanceDue > 0 ? String(balanceDue) : String(inv.total || ''),
+        dueDate:     inv.dueDate ? inv.dueDate.split('T')[0] : f.dueDate,
+        type:        payType,
+        status:      isPaid ? 'Received' : balanceDue <= 0 ? 'Received' : 'Pending',
+        notes:       f.notes || `Payment for ${inv.invoiceId}${inv.workOrderId ? ' / ' + inv.workOrderId : ''}`,
+      }));
+
+      setInvMsgOk(true);
+      setInvMsg(isPaid
+        ? `⚠ Invoice already marked as Paid (PKR ${Number(inv.total||0).toLocaleString()})`
+        : `✓ Loaded — Balance due: PKR ${balanceDue.toLocaleString()}`);
+      setCustErr('');
+    } catch(e) {
+      setInvMsg(e.response?.status === 404 ? 'Invoice not found' : 'Failed to load invoice');
+      setInvMsgOk(false);
+    } finally { setInvLoading(false); }
+  };
+
   const filtered = useMemo(() => {
     let r = payments;
     if (search)     r = r.filter(p => [p.customerName, p.paymentId, p.invoiceRef, p.transactionRef].some(v => (v||'').toLowerCase().includes(search.toLowerCase())));
@@ -100,11 +174,21 @@ export default function Payments() {
 
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
 
-  const openNew  = () => { setForm({ ...BLANK, paymentDate: new Date().toISOString().split('T')[0] }); setCustomer(null); setCustErr(''); setCustSearch(''); setCustResults([]); setFormErr(''); setShowEdit(true); };
-  const openEdit = (p) => { setForm({ ...BLANK, ...p }); setCustSearch(p.customerName || ''); setCustResults([]); setFormErr(''); setShowEdit(true); };
+  const openNew  = () => {
+    setForm({ ...BLANK, paymentDate: new Date().toISOString().split('T')[0] });
+    setCustomer(null); setCustErr(''); setCustSearch(''); setCustResults([]);
+    setFormErr(''); setInvLookup(''); setInvMsg(''); setInvMsgOk(false);
+    setShowEdit(true);
+  };
+  const openEdit = (p) => {
+    setForm({ ...BLANK, ...p }); setCustSearch(p.customerName || '');
+    setCustResults([]); setFormErr('');
+    setInvLookup(p.invoiceRef || ''); setInvMsg(''); setInvMsgOk(false);
+    setShowEdit(true);
+  };
 
   const save = async () => {
-    if (!customer?.customerId) { setCustErr('Please select a customer'); return; }
+    if (!customer?.customerId && !form.customerId) { setCustErr('Please select a customer'); return; }
     if (!form.amount)     { setFormErr('Amount is required'); return; }
     setSaving(true); setFormErr('');
     try {
@@ -178,23 +262,66 @@ export default function Payments() {
 
       {/* Add / Edit Modal */}
       <Modal open={showEdit} onClose={() => setShowEdit(false)} title={form.paymentId ? 'Edit Payment' : 'Record Payment'} size="lg">
-        <Field label="Customer *">
-          <div style={{ position: 'relative' }}>
-            <Input placeholder="Search customer…" value={custSearch} onChange={e => searchCust(e.target.value)} />
-            {custResults.length > 0 && (
-              <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, background: 'var(--surface)', border: '1px solid var(--border-hi)', borderRadius: 10, maxHeight: 200, overflowY: 'auto', zIndex: 200, boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}>
-                {custResults.map(c => (
-                  <div key={c.customerId} onClick={() => selectCust(c)}
-                    style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid var(--border)' }}
-                    onMouseOver={e => e.currentTarget.style.background = 'rgba(56,217,245,0.06)'}
-                    onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
-                    <div style={{ fontSize: 12, color: 'var(--text)', fontWeight: 600 }}>{c.customerName}</div>
-                    <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>{c.contact}</div>
-                  </div>
-                ))}
-              </div>
-            )}
+
+        {/* ── Invoice auto-fill banner ───────────────────────── */}
+        <div style={{ background: 'rgba(56,217,245,0.04)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <FileText size={11} /> Auto-fill from Invoice
           </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              className="field-input"
+              style={{ flex: 1, fontFamily: 'var(--mono)', fontSize: 12 }}
+              placeholder="e.g. INV-000001"
+              value={invLookup}
+              onChange={e => { setInvLookup(e.target.value); setInvMsg(''); }}
+              onKeyDown={e => e.key === 'Enter' && lookupInvoice()}
+            />
+            <button
+              className="btn btn-ghost btn-sm"
+              style={{ whiteSpace: 'nowrap', minWidth: 80 }}
+              onClick={lookupInvoice}
+              disabled={invLoading || !invLookup.trim()}
+            >
+              {invLoading ? <Loader size={12} style={{ animation: 'spin 1s linear infinite' }} /> : 'Load Invoice'}
+            </button>
+          </div>
+          {invMsg && (
+            <div style={{ marginTop: 6, fontSize: 11, color: invMsgOk ? 'var(--success)' : 'var(--danger)' }}>
+              {invMsg}
+            </div>
+          )}
+        </div>
+
+        {/* ── Customer ──────────────────────────────────────── */}
+        <Field label="Customer *">
+          {customer?.customerId ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'rgba(56,217,245,0.06)', border: '1px solid var(--border-hi)', borderRadius: 8 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>{customer.customerName}</div>
+                <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 1 }}>{customer.contact}</div>
+              </div>
+              <button className="btn btn-ghost btn-sm" style={{ fontSize: 10 }} onClick={() => { setCustomer(null); setForm(f => ({ ...f, customerId: '', customerName: '', contact: '' })); setCustSearch(''); }}>Change</button>
+            </div>
+          ) : (
+            <div style={{ position: 'relative' }}>
+              <Input placeholder="Search customer…" value={custSearch} onChange={e => searchCust(e.target.value)} />
+              {custResults.length > 0 && (
+                <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, background: 'var(--surface)', border: '1px solid var(--border-hi)', borderRadius: 10, maxHeight: 200, overflowY: 'auto', zIndex: 200, boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}>
+                  {custResults.map(c => (
+                    <div key={c.customerId} onClick={() => selectCust(c)}
+                      style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid var(--border)' }}
+                      onMouseOver={e => e.currentTarget.style.background = 'rgba(56,217,245,0.06)'}
+                      onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
+                      <div style={{ fontSize: 12, color: 'var(--text)', fontWeight: 600 }}>{c.customerName}</div>
+                      <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>{c.contact}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          {custErr && <div style={{ fontSize: 11, color: 'var(--danger)', marginTop: 4 }}>{custErr}</div>}
         </Field>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 18px' }}>
@@ -207,7 +334,9 @@ export default function Payments() {
           <Field label="Status">
             <Select value={form.status} onChange={set('status')}>{PAY_STATUSES.map(s => <option key={s}>{s}</option>)}</Select>
           </Field>
-          <Field label="Invoice / Job Ref"><Input placeholder="INV-XXXXXXXX" value={form.invoiceRef} onChange={set('invoiceRef')} /></Field>
+          <Field label="Invoice / Job Ref">
+            <Input placeholder="INV-XXXXXXXX" value={form.invoiceRef} onChange={set('invoiceRef')} />
+          </Field>
           <Field label="Total Amount (PKR) *"><Input type="number" value={form.amount} onChange={set('amount')} /></Field>
           <Field label="Amount Paid (PKR)"><Input type="number" value={form.paidAmount} onChange={set('paidAmount')} /></Field>
           <Field label="Payment Date"><Input type="date" value={form.paymentDate} onChange={set('paymentDate')} /></Field>
@@ -231,6 +360,8 @@ export default function Payments() {
           <button className="btn btn-solid" disabled={saving} onClick={save}>{saving ? 'Saving…' : (form.paymentId ? 'Save Changes' : 'Record Payment')}</button>
         </ModalButtons>
       </Modal>
+
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </>
   );
 }

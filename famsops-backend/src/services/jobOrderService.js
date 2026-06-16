@@ -140,7 +140,7 @@ async function convertFromLead(leadId, userId) {
       customer_id, customer_name, contact, city, company, package,
       amc_duration, amount, notes, lead_id, created_by,
       registration_no, vehicle_make, vehicle_model, vehicle_color)
-    VALUES ($1,'New Installation',$2,'Scheduled',$3,$4,$5,$6,$7,$8,'1 Year',$9,$10,$11,$12,$13,$14,$15,$16,$17)
+    VALUES ($1,'New Installation',$2,'Scheduled',$3,$4,$5,$6,$7,$8,'1 Year',$9,$10,$11,$12,$13,$14,$15,$16)
   `, [invoiceNumber, new Date().toISOString().split('T')[0],
       lead.customer_id, lead.customer_name, lead.contact,
       lead.city, lead.company||null, lead.package||null,

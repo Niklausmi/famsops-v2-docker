@@ -4,6 +4,7 @@ import { cn } from '../../lib/utils';
 
 export function Modal({ open, onClose, title, children, size = 'md', className }) {
   const widths = { sm: 420, md: 540, lg: 700, xl: 900 };
+  const descId = `modal-desc-${title?.replace(/\s+/g, '-').toLowerCase() || 'dialog'}`;
   return (
     <Dialog.Root open={open} onOpenChange={(o) => !o && onClose?.()}>
       <Dialog.Portal>
@@ -18,6 +19,7 @@ export function Modal({ open, onClose, title, children, size = 'md', className }
         >
           <Dialog.Content
             className={cn('animate-fade-up', className)}
+            aria-describedby={descId}
             style={{
               background: 'var(--surface)',
               border: '1px solid var(--border-hi)',
@@ -30,6 +32,9 @@ export function Modal({ open, onClose, title, children, size = 'md', className }
               margin: 'auto',
             }}
           >
+            {/* Visually hidden description for screen readers */}
+            <span id={descId} style={{ display: 'none' }}>{title} dialog</span>
+
             <div style={{
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               marginBottom: 20, paddingBottom: 14,
